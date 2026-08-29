@@ -582,11 +582,12 @@ function frame(t: number): void {
 
   for (const ev of tick(state, now)) {
     if (ev.kind === 'factory' && ev.item) {
-      audio.play('coin');
-      toast(`工厂产出 ${itemName(ev.item)}`);
-      // 专注模式下 UI 默认隐藏、视线在岛中央，底部 toast 容易被忽略，
-      // 所以在屏幕中央补一条醒目飘字，保证产出提示一定看得见
-      if (isFocusing(state, now)) floatAtCanvas(`工厂产出 ${itemName(ev.item)}`, 'good');
+      // 专注模式下静默：不弹 toast、不飘字、不出金币音，避免打扰学习。
+      // 产出计数走 simulation 里的 state.focus.produced，与这里的解耦，统计不受影响。
+      if (!isFocusing(state, now)) {
+        audio.play('coin');
+        toast(`工厂产出 ${itemName(ev.item)}`);
+      }
       markDirty(); // 产出可能点亮图鉴，进而触发成就
     }
     // 专注期间的自动农活刻意静默——弹提示就打扰人学习了

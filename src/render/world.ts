@@ -53,9 +53,11 @@ function buildingPos(i: number): THREE.Vector3 {
   return new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r);
 }
 
+/** 工厂区：前缘右段自成一带。住宅只排后半圈（r≤8.2），永远不会挤过来，
+ *  工厂门前没有遮挡；面朝岛外=正对默认镜头，雨棚与门脸一目了然。 */
 function factoryPos(i: number): THREE.Vector3 {
-  const a = -Math.PI * 0.72 + (i / 3) * Math.PI * 0.5;
-  const r = 6.9;
+  const a = Math.PI * 0.16 + (i % 5) * ((Math.PI * 0.34) / 4);
+  const r = 7.9;
   return new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r);
 }
 
@@ -99,7 +101,10 @@ export class World {
       const x = Math.cos(a) * r;
       const z = Math.sin(a) * r;
       if (Math.hypot(x - FARM_CENTER.x, z - FARM_CENTER.z) < 2.9) continue; // 矩形农田区
-      if (z < 0 && Math.hypot(x, z) < 7.6) continue; // 建筑与工厂区
+      if (z < 0 && Math.hypot(x, z) < 7.6) continue; // 建筑区
+      // 工厂前缘区：右前段岛边留给工厂，树别长在厂门口挡雨棚
+      const fa = Math.atan2(z, x);
+      if (z > 0 && r > 6.2 && fa > Math.PI * 0.12 && fa < Math.PI * 0.54) continue;
       if (Math.hypot(x - POND.x, z - POND.y) < POND_RADIUS + 0.4) continue; // 池塘区
       const t = makeTree(Math.floor(rng() * 1e9));
       t.position.set(x, 0, z);
@@ -252,7 +257,8 @@ export class World {
       if (this.factories.has(id)) return;
       const { group, lights, chimneyTop } = makeFactory(f.type, i * 104729 + 7);
       group.position.copy(factoryPos(i));
-      group.lookAt(0, group.position.y, 0);
+      // 面朝岛外：前缘工厂背靠岛边，正对默认镜头，雨棚不被任何建筑遮挡
+      group.lookAt(group.position.x * 2, group.position.y, group.position.z * 2);
       group.rotation.x = 0;
       group.rotation.z = 0;
       group.userData.factoryIndex = i;

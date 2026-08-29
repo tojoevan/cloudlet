@@ -78,17 +78,19 @@ export function makeHouse(
   door.position.set(0, 0.21, d / 2 + 0.02);
   g.add(door);
 
-  // 窗：单独材质，夜间点亮
+  // 窗：单独材质，夜间点亮。抬到门楣之上（门顶固定在 y=0.42），
+  // 与门在 y 上彻底错开，避免两者正面共面（z=d/2+0.05）造成旋转时 z-fighting 闪烁。
   const winMat = matOwn(p.accent);
   lights.push(winMat);
+  const winY = Math.max(0.56, h * 0.62);
   const winCount = rng() > 0.5 ? 2 : 1;
   for (let i = 0; i < winCount; i++) {
     const win = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.06), winMat);
-    win.position.set((i - (winCount - 1) / 2) * 0.42, h * 0.62, d / 2 + 0.02);
+    win.position.set((i - (winCount - 1) / 2) * 0.42, winY, d / 2 + 0.02);
     g.add(win);
   }
   const side = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.2, 0.22), winMat);
-  side.position.set(w / 2 + 0.02, h * 0.62, 0);
+  side.position.set(w / 2 + 0.02, winY, 0);
   g.add(side);
 
   // 烟囱
@@ -136,6 +138,20 @@ export function makeFactory(type: FactoryType, seed: number): StructureMesh {
   const band = new THREE.Mesh(new THREE.BoxGeometry(w * 1.02, 0.16, d * 1.02), mat(def.roof));
   band.position.y = h * 0.72;
   g.add(band);
+
+  // 入口雨棚：可生产建筑的身份牌（住宅一律没有）。
+  // 白色与建筑自身屋顶色交替——颜色随建筑走不突兀，「带棚」这个形状才是标识。
+  const awning = new THREE.Group();
+  const segW = (w * 0.94) / 6;
+  for (let i = 0; i < 6; i++) {
+    const seg = new THREE.Mesh(new THREE.BoxGeometry(segW, 0.05, 0.34), mat(i % 2 ? 0xfff7ee : def.roof));
+    seg.position.x = -w * 0.47 + segW * (i + 0.5);
+    seg.castShadow = true;
+    awning.add(seg);
+  }
+  awning.position.set(0, h * 0.92, d / 2 + 0.14);
+  awning.rotation.x = 0.32; // 前缘微微下垂
+  g.add(awning);
 
   const winMat = matOwn(0xffe9a8);
   lights.push(winMat);
