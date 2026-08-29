@@ -69,22 +69,22 @@ curl "http://127.0.0.1:8787/api/health"
 - 账号模式下 owner 直接取自 JWT，客户端不可伪造；设备模式设备 ID 必须是 UUID v4
 - payload 上限 200KB；管理令牌与玩家令牌体系隔离
 
-## 部署（无 Docker，裸机 systemd / pm2，对齐微家事架构）
+## 部署（无 Docker，裸机 + 宝塔反代，对齐微家事架构）
 
-前端静态产物由 Nginx 托管，网关作为常驻进程，二者同机、同源。
+前端静态产物放在宝塔站点根目录，网关作为 pm2 常驻进程监听 `127.0.0.1:8787`，宝塔反向代理把 `/api` 与 `/admin` 指过去，二者同机同源。
 
 ```bash
 # 一次性：在数据湖登记租户
 export INTERNAL_KEY=...
 npm run init:tenant
 
-# 部署（默认 systemd；MODE=pm2 切到 pm2）
+# 部署到 VPS（静态 → /www/wwwroot/cloudlet，网关 → /opt/cloudlet-api）
 export VPS=user@your-server
 export INTERNAL_KEY=... JWT_SECRET=$(openssl rand -hex 32) ADMIN_TOKEN=$(openssl rand -hex 16)
 bash deploy/deploy.sh
 ```
 
-部署后：站点根路径为游戏，管理后台在 `/admin`（用 `ADMIN_TOKEN` 进入）。网关无本地状态，可随时重启。详见 `deploy/.env.example`。
+部署后：站点根路径为游戏，管理后台在 `/admin`（用 `ADMIN_TOKEN` 进入）。网关用 `deploy/start.sh` 包装脚本加载 `.env` 后常驻（pm2 守护进程不继承交互 shell 的环境变量，故不能靠 `source .env && pm2 start`）。详见 `deploy/.env.example`。
 
 ## 结构
 
@@ -96,7 +96,7 @@ src/
   audio/       Web Audio 程序化 BGM（city pop / lo-fi / ambient）+ 外接电台
   ui/          HTML overlay：HUD、订单板、弹窗、飘字
 server/        网关（node:http，零依赖）：云存档代理 + 账号 + 双等级校验 + 管理后台 + /admin 静态页
-deploy/        Nginx、systemd unit、pm2 配置、.env 示例、初始化与部署脚本
+deploy/        pm2 配置(ecosystem/start.sh)、.env 示例、nginx 反代示例、初始化与部署脚本
 test/          核心玩法冒烟测试
 ```
 

@@ -1,26 +1,24 @@
 #!/usr/bin/env bash
-# 构建前端 → 上传 VPS → 以 systemd 重启网关（无 Docker，对齐微家事裸机部署）
+# 构建前端 → 上传 VPS → 用 pm2 启动网关（无 Docker，对齐微家事裸机部署）
+#
+# 拓扑：
+#   静态前端  →  /www/wwwroot/cloudlet   （宝塔站点根目录，由宝塔 nginx 直接托管）
+#   网关网关  →  /opt/cloudlet-api        （pm2 常驻，监听 127.0.0.1:8787）
+#   宝塔反向代理把 /api 与 /admin 指向 127.0.0.1:8787
 #
 # 用法：
 #   VPS=user@1.2.3.4 INTERNAL_KEY=... JWT_SECRET=... ADMIN_TOKEN=... ./deploy/deploy.sh
 #
-# 部署目标结构：
-#   /opt/cloudlet/
-#     dist/            前端静态产物（nginx root）
-#     server/index.mjs 网关
-#     deploy/          nginx.conf / systemd unit / .env / 本脚本
-#
-# 依赖：node >= 18（网关零依赖）、nginx、systemd（或 pm2）
+# 依赖：node >= 18（网关零依赖）、pm2（已装在 VPS 上）
 set -euo pipefail
 
 : "${VPS:?请设置 VPS，例如 user@1.2.3.4}"
-: "${INTERNAL_KEY:?请设置 INTERNAL_KEY（数据湖内部密钥）}"
+: "${INTERNAL_KEY:?请设置 INTERNAL_KEY（数据湖内部密钥 X-Sync-Key）}"
 : "${JWT_SECRET:?请设置 JWT_SECRET（openssl rand -hex 32）}"
-: "${ADMIN_TOKEN:?请设置 ADMIN_TOKEN（openssl rand -hex 16）}"
+: "${ADMIN_TOKEN:?请设置 ADMIN_TOKEN（openssl rand -hex 16，管理后台登录令牌）}"
 
-REMOTE_DIR="${REMOTE_DIR:-/opt/cloudlet}"
-RUNNER="${RUNNER:-www-data}"        # systemd 运行用户，需对 REMOTE_DIR 有读权限
-MODE="${MODE:-systemd}"             # systemd | pm2
+WEB_DIR="${WEB_DIR:-/www/wwwroot/cloudlet}"   # 宝塔站点根目录
+API_DIR="${API_DIR:-/opt/cloudlet-api}"       # 网关目录
 
 cd "$(dirname "$0")/.."
 
@@ -28,42 +26,40 @@ echo "→ 构建前端"
 npm ci
 npm run build
 
-echo "→ 上传产物到 ${VPS}:${REMOTE_DIR}"
-ssh "$VPS" "mkdir -p ${REMOTE_DIR}/dist ${REMOTE_DIR}/server ${REMOTE_DIR}/deploy/logs"
-rsync -avz --delete dist/ "${VPS}:${REMOTE_DIR}/dist/"
-rsync -avz server/index.mjs "${VPS}:${REMOTE_DIR}/server/"
-rsync -avz \
-  deploy/nginx.conf \
-  deploy/cloudlet-api.service \
-  deploy/ecosystem.config.cjs \
-  deploy/.env.example \
-  "${VPS}:${REMOTE_DIR}/deploy/"
+echo "→ 上传静态前端到 ${VPS}:${WEB_DIR}"
+ssh "$VPS" "mkdir -p ${WEB_DIR}"
+rsync -avz --delete dist/ "${VPS}:${WEB_DIR}/"
 
-echo "→ 写环境变量并启动网关（${MODE}）"
-ssh "$VPS" bash -s <<EOF
+echo "→ 上传网关到 ${VPS}:${API_DIR}"
+ssh "$VPS" "mkdir -p ${API_DIR}/logs"
+rsync -avz --delete \
+  server/index.mjs \
+  deploy/admin.html \
+  deploy/start.sh \
+  deploy/ecosystem.config.cjs \
+  "${VPS}:${API_DIR}/"
+
+echo "→ 写环境变量（含真实数据湖密钥）"
+ssh "$VPS" bash -s <<ENV
 set -euo pipefail
-cat > ${REMOTE_DIR}/deploy/.env <<ENV
-INTERNAL_KEY='${INTERNAL_KEY}'
-JWT_SECRET='${JWT_SECRET}'
-ADMIN_TOKEN='${ADMIN_TOKEN}'
+cat > ${API_DIR}/.env <<DOTENV
+PORT=8787
 LAKE_BASE='${LAKE_BASE:-https://your-data-lake.example.com}'
 LAKE_TENANT='${LAKE_TENANT:-cloudlet}'
-PORT=8787
-ALLOWED_ORIGIN='${ALLOWED_ORIGIN:-}'
+JWT_SECRET='${JWT_SECRET}'
+ADMIN_TOKEN='${ADMIN_TOKEN}'
+INTERNAL_KEY='${INTERNAL_KEY}'
+ADMIN_HTML=${API_DIR}/admin.html
+NODE_ENV=production
+DOTENV
+chmod 600 ${API_DIR}/.env
+chmod +x ${API_DIR}/start.sh
 ENV
-chmod 600 ${REMOTE_DIR}/deploy/.env
-chown -R ${RUNNER}:${RUNNER} ${REMOTE_DIR}
 
-if [ "${MODE}" = "pm2" ]; then
-  pm2 restart ${REMOTE_DIR}/deploy/ecosystem.config.cjs || pm2 start ${REMOTE_DIR}/deploy/ecosystem.config.cjs
-  pm2 save
-else
-  install -m 644 ${REMOTE_DIR}/deploy/cloudlet-api.service /etc/systemd/system/cloudlet-api.service
-  sed -i "s/^User=.*/User=${RUNNER}/" /etc/systemd/system/cloudlet-api.service
-  systemctl daemon-reload
-  systemctl enable cloudlet-api
-  systemctl restart cloudlet-api
-fi
-EOF
+echo "→ pm2 启动/重启网关"
+ssh "$VPS" "cd ${API_DIR} && (pm2 restart ${API_DIR}/ecosystem.config.cjs || pm2 start ${API_DIR}/ecosystem.config.cjs) && pm2 save"
 
-echo "完成。访问站点，管理后台在 /admin"
+echo "完成。"
+echo "  · 站点根目录：${WEB_DIR}（宝塔建站时填这个目录）"
+echo "  · 宝塔反向代理：把 /api 与 /admin 指向 http://127.0.0.1:8787"
+echo "  · 管理后台：域名/admin （用 ADMIN_TOKEN 登录）"
