@@ -1,8 +1,10 @@
 /**
  * 云存档 + 账号网关 —— 游戏前端与 cloudflarepool 数据湖之间唯一的一层。
  *
- * 架构（对齐微家事）：
- *   [ 浏览器前端 ] → HTTPS /api/* → [ 本网关（持有 INTERNAL_KEY / JWT_SECRET）] → X-Sync-Key 内部通道 → [ cloudflarepool 数据湖 ]
+ * 架构（对齐微家事，路C 对接通用网关）：
+ *   [ 浏览器前端 ] → HTTPS /api/* → [ 本网关（持有 GATEWAY_KEY / JWT_SECRET）]
+ *     → T2 JWT → [ 微家事网关 your-gateway.example.com /api/t2data ] → [ cloudflarepool 数据湖 weijiashi 租户 ]
+ *   本网关不再直连数据湖、不持有 X-Sync-Key；数据湖凭证收敛到微家事网关一侧。
  *
  * 为什么需要这层（数据湖直连的五个卡点）：
  *   1. 数据湖零 CORS，浏览器跨域调用预检直接 403
@@ -11,8 +13,8 @@
  *   4. 没有 upsert，POST 是裸 INSERT，重复 id 会 500
  *   5. 单条 GET 不校验 owner，持读令牌可遍历 id 读他人存档
  *
- * 走 X-Sync-Key 内部通道 + 注入 X-User-Id，五个问题一次解决：
- *   同源部署绕开 CORS、owner 即玩家、该通道豁免限流、
+ * 走微家事网关 T2 通道（/api/t2data）+ 注入 T2 JWT，五个问题一次解决：
+ *   同源部署绕开 CORS、owner 即玩家（T2 sub）、网关代理豁免限流、
  *   PUT→404→POST 自动回退补上 upsert、代理层补 owner 校验。
  *
  * 本次新增（账号体系 + 双等级 + 管理后台），全部保持零 npm 依赖：
@@ -23,7 +25,7 @@
  * 安全红线：
  *   - INTERNAL_KEY / JWT_SECRET 只存在于本进程环境变量
  *   - 绝不转发客户端的任何请求头，全部由本文件重新构造
- *   - 只允许访问 /t/{TENANT}/c/{COLLECTION_*}/ 前缀，不是通用网关
+ *   - 只允许访问 /api/t2data/c/{COLLECTION_*}/ 前缀（微家事网关侧再转发到 weijiashi 租户）
  *
  * 开发/测试：LAKE_BASE 以 `memory` 开头时启用内存存储适配器，无需真实数据湖即可端到端验证。
  */
@@ -43,6 +45,13 @@ const COLLECTION_SAVES = process.env.LAKE_COLLECTION || 'cloudlet_saves';
 const COLLECTION_ACCOUNTS = process.env.LAKE_COLLECTION_ACCOUNTS || 'cloudlet_accounts';
 const COLLECTION_USERNAMES = process.env.LAKE_COLLECTION_USERNAMES || 'cloudlet_usernames';
 const INTERNAL_KEY = process.env.INTERNAL_KEY;
+// 路C：对接微家事通用网关，经 /api/t2data 通道（T2 account JWT）代理到数据湖。
+// 持有微家事网关的 Ed25519 私钥，为每个玩家签 T2 JWT，由微家事网关转发到
+// 数据湖的 weijiashi 租户；cloudlet 数据用 cloudlet_ 前缀集合名隔离。
+const GATEWAY_MODE = !!process.env.GATEWAY_KEY;
+const GATEWAY_BASE = (process.env.GATEWAY_BASE || 'https://your-gateway.example.com').replace(/\/$/, '');
+const GATEWAY_KEY = process.env.GATEWAY_KEY ? process.env.GATEWAY_KEY.replace(/\\n/g, '\n') : '';
+const GATEWAY_APP_ID = process.env.GATEWAY_APP_ID || 'jiashiben';
 // 路A：直接对接微家事网关的 T4 数据层（/api/t4data），用 data 作用域 API Key 鉴权
 const T4_MODE = !!process.env.T4_KEY;
 const T4_BASE = (process.env.T4_BASE || 'https://your-gateway.example.com/api/t4data').replace(/\/$/, '');
@@ -56,7 +65,7 @@ const MEMORY_MODE = LAKE.startsWith('memory');
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || (MEMORY_MODE ? 'admin' : '');
 
 const MAX_BYTES = 200 * 1024;
-const TIMEOUT_MS = 8000;
+const TIMEOUT_MS = 20000;
 
 // 管理后台静态页：默认读取 deploy/admin.html，可用 ADMIN_HTML 覆盖
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -78,8 +87,8 @@ if (!JWT_SECRET) {
   console.error('[cloudlet-api] 缺少 JWT_SECRET，拒绝启动');
   process.exit(1);
 }
-if (!MEMORY_MODE && !T4_MODE && !INTERNAL_KEY) {
-  console.error('[cloudlet-api] 缺少数据湖凭证：请设置 T4_KEY（微家事网关 API Key，路A）或 INTERNAL_KEY（原始 cloudflarepool 密钥，路B）');
+if (!MEMORY_MODE && !T4_MODE && !INTERNAL_KEY && !GATEWAY_MODE) {
+  console.error('[cloudlet-api] 缺少数据湖凭证：请设置 GATEWAY_KEY（微家事网关 T2 通道，路C）/ INTERNAL_KEY（原始通道，路B）/ T4_KEY（路A）');
   process.exit(1);
 }
 
@@ -218,6 +227,7 @@ async function memLake(method, collection, id, ownerId, body) {
 /** 统一数据湖调用，返回 { status, ok, json() }，屏蔽内存 / 原始 cloudflarepool / 微家事 T4 网关 差异 */
 async function lake(method, collection, id, ownerId, body) {
   if (MEMORY_MODE) return memLake(method, collection, id, ownerId, body);
+  if (GATEWAY_MODE) return gwLake(method, collection, id, ownerId, body);
   if (T4_MODE) return t4Lake(method, collection, id, ownerId, body);
   return rawLake(method, collection, id, ownerId, body);
 }
@@ -267,6 +277,57 @@ async function t4Lake(method, collection, id, ownerId, body) {
   }
 }
 
+/** 对接微家事通用网关：经 /api/t2data 通道（T2 account JWT）代理到数据湖。
+ *  数据湖 tenant 固定为微家事网关的 weijiashi，cloudlet 数据用 cloudlet_ 前缀集合名隔离。 */
+function signT2Jwt(sub, ttl = 3600) {
+  const privateKey = crypto.createPrivateKey(GATEWAY_KEY);
+  const header = { alg: 'EdDSA', typ: 'JWT', kid: 'gw1' };
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    sub,
+    aid: GATEWAY_APP_ID,
+    typ: 'account',
+    scp: ['user:read', 'user:write'],
+    iss: 'gateway',
+    aud: 'your-data-lake.example.com',
+    iat: now,
+    exp: now + ttl,
+  };
+  const signingInput = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
+  const sig = crypto.sign(null, Buffer.from(signingInput), privateKey);
+  return `${signingInput}.${b64url(sig)}`;
+}
+
+async function gwLake(method, collection, id, ownerId, body, attempt = 0) {
+  const base = `/api/t2data/c/${encodeURIComponent(collection)}`;
+  const url = id
+    ? `${GATEWAY_BASE}${base}/${encodeURIComponent(id)}`
+    : `${GATEWAY_BASE}${base}`;
+  const token = signT2Jwt(ownerId || 'cloudlet-system');
+  const headers = {
+    'content-type': 'application/json',
+    authorization: 'Bearer ' + token,
+  };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const payload =
+      body === undefined || method === 'GET' || method === 'DELETE'
+        ? undefined
+        : JSON.stringify(body);
+    const res = await fetch(url, { method, headers, body: payload, signal: ctrl.signal });
+    const status = res.status;
+    const ok = status >= 200 && status < 300;
+    return { status, ok, json: async () => { try { return await res.json(); } catch { return {}; } } };
+  } catch (e) {
+    // 首次可能因微家事网关/数据湖冷启动超时，重试一次
+    if (attempt < 1) return gwLake(method, collection, id, ownerId, body, attempt + 1);
+    return { status: 504, ok: false, json: async () => ({ error: 'gateway timeout' }) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** upsert：先 PUT，404 再 POST 创建 */
 async function lakeUpsert(collection, id, doc, ownerId) {
   let r = await lake('PUT', collection, id, ownerId, { doc });
@@ -285,30 +346,10 @@ async function lakeList(collection, ownerId) {
     for (const [k, v] of mem) if (k.startsWith(`${collection}/`) && v.doc) items.push(v.doc);
     return items;
   }
-  let rows = [];
-  if (T4_MODE) {
-    const r = await lake('GET', collection, null, ownerId || 'admin');
-    if (r.ok) {
-      const data = await r.json().catch(() => ({}));
-      rows = data.rows || data.items || data.list || (Array.isArray(data) ? data : []);
-    }
-  } else {
-    const path = `/t/${encodeURIComponent(TENANT)}/c/${encodeURIComponent(collection)}`;
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-    try {
-      const res = await fetch(`${LAKE}${path}`, {
-        method: 'GET',
-        headers: { 'x-sync-key': INTERNAL_KEY, 'x-user-id': ownerId || 'admin' },
-      });
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        rows = Array.isArray(data) ? data : (data.items || data.rows || data.list || []);
-      }
-    } catch { /* ignore */ } finally {
-      clearTimeout(timer);
-    }
-  }
+  const r = await lake('GET', collection, null, ownerId || 'admin');
+  if (!r.ok) return [];
+  const data = await r.json().catch(() => ({}));
+  const rows = data.rows || data.items || data.list || (Array.isArray(data) ? data : []);
   return rows.map((x) => (x && x.doc ? x.doc : x));
 }
 
@@ -653,7 +694,7 @@ const server = http.createServer(async (req, res) => {
     const p = req.urlObj.pathname;
 
     if (p === '/api/health') {
-      return send(res, 200, { ok: true, tenant: TENANT, memory: MEMORY_MODE }, cors);
+      return send(res, 200, { ok: true, mode: GATEWAY_MODE ? 'gateway' : (T4_MODE ? 't4' : (MEMORY_MODE ? 'memory' : 'raw')), memory: MEMORY_MODE }, cors);
     }
 
     if (p === '/api/auth/register') {

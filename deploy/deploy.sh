@@ -7,15 +7,22 @@
 #   宝塔反向代理把 /api 与 /admin 指向 127.0.0.1:8787
 #
 # 用法：
+#   # 路C（推荐）：
+#   VPS=user@1.2.3.4 GATEWAY_KEY='-----BEGIN PRIVATE KEY-----...' JWT_SECRET=... ADMIN_TOKEN=... ./deploy/deploy.sh
+#   # 或路B 直连：
 #   VPS=user@1.2.3.4 INTERNAL_KEY=... JWT_SECRET=... ADMIN_TOKEN=... ./deploy/deploy.sh
 #
 # 依赖：node >= 18（网关零依赖）、pm2（已装在 VPS 上）
 set -euo pipefail
 
 : "${VPS:?请设置 VPS，例如 user@1.2.3.4}"
-: "${INTERNAL_KEY:?请设置 INTERNAL_KEY（数据湖内部密钥 X-Sync-Key）}"
 : "${JWT_SECRET:?请设置 JWT_SECRET（openssl rand -hex 32）}"
 : "${ADMIN_TOKEN:?请设置 ADMIN_TOKEN（openssl rand -hex 16，管理后台登录令牌）}"
+# 数据湖凭证：路C(GATEWAY_KEY) / 路A(T4_KEY) / 路B(INTERNAL_KEY) 至少其一
+if [ -z "${GATEWAY_KEY:-}" ] && [ -z "${T4_KEY:-}" ] && [ -z "${INTERNAL_KEY:-}" ]; then
+  echo "错误：请至少设置 GATEWAY_KEY / T4_KEY / INTERNAL_KEY 之一" >&2
+  exit 1
+fi
 
 WEB_DIR="${WEB_DIR:-/www/wwwroot/cloudlet}"   # 宝塔站点根目录
 API_DIR="${API_DIR:-/opt/cloudlet-api}"       # 网关目录
@@ -48,7 +55,11 @@ LAKE_BASE='${LAKE_BASE:-https://your-data-lake.example.com}'
 LAKE_TENANT='${LAKE_TENANT:-cloudlet}'
 JWT_SECRET='${JWT_SECRET}'
 ADMIN_TOKEN='${ADMIN_TOKEN}'
-INTERNAL_KEY='${INTERNAL_KEY}'
+GATEWAY_KEY='${GATEWAY_KEY:-}'
+GATEWAY_BASE='${GATEWAY_BASE:-https://your-gateway.example.com}'
+GATEWAY_APP_ID='${GATEWAY_APP_ID:-jiashiben}'
+T4_KEY='${T4_KEY:-}'
+INTERNAL_KEY='${INTERNAL_KEY:-}'
 ADMIN_HTML=${API_DIR}/admin.html
 NODE_ENV=production
 DOTENV
