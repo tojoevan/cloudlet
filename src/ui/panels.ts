@@ -7,6 +7,7 @@ import { BUILDINGS, BUILDING_ORDER } from '../data/buildings';
 import { CROPS, CROP_ORDER } from '../data/crops';
 import { FACTORIES, FACTORY_ORDER, PRODUCTS, recipesOf } from '../data/factories';
 import { itemColor } from '../data/items';
+import * as auth from '../core/auth';
 import { closeModal, el, fmt, fmtDur, fmtMMSS, hex, openModal, toast } from './dom';
 
 function card(opts: {
@@ -304,6 +305,10 @@ export interface SettingsHandlers {
   onExport: () => string;
   onImport: (code: string) => void;
   onSync: () => void;
+  /** 返回 true 表示成功（main 会重建面板），返回 string 表示错误信息（面板内联展示） */
+  onLogin: (username: string, password: string) => void | Promise<boolean | string | undefined>;
+  onRegister: (username: string, password: string) => void | Promise<boolean | string | undefined>;
+  onLogout: () => void | boolean | undefined;
 }
 
 /** 操作说明。旋转视角藏得太深，用户会找不到，干脆列出来 */
@@ -322,6 +327,43 @@ export function openSettingsPanel(
   h: SettingsHandlers,
 ): void {
   const body = el('div');
+
+  // ---------- 账号分区（置顶） ----------
+  const acct = el('div', 'account');
+  if (auth.isLoggedIn()) {
+    acct.appendChild(el('p', 'hint', '账号'));
+    const info = el('div', 'row');
+    info.appendChild(el('span', 'tag', `已登录 ${auth.username() ?? ''}`));
+    info.appendChild(el('span', 'tag tier', `会员 V${auth.memberTier()}`));
+    acct.appendChild(info);
+    acct.appendChild(el('p', 'note', '进度自动同步到该账号，换设备登录即可继续。'));
+    const logout = el('button', 'btn sm ghost', '退出登录');
+    logout.addEventListener('click', () => {
+      void h.onLogout();
+    });
+    acct.appendChild(logout);
+  } else {
+    acct.appendChild(el('p', 'hint', '账号（进度云同步到账号，换设备可继续）'));
+    const uIn = el('input', 'input') as HTMLInputElement;
+    uIn.placeholder = '用户名（3-20 位字母/数字/下划线）';
+    const pIn = el('input', 'input') as HTMLInputElement;
+    pIn.type = 'password';
+    pIn.placeholder = '密码（至少 6 位）';
+    const err = el('p', 'note err', '');
+    const row = el('div', 'row');
+    const login = el('button', 'btn sm', '登录');
+    const reg = el('button', 'btn sm ghost', '注册');
+    async function submit(fn: SettingsHandlers['onLogin'] | SettingsHandlers['onRegister']): Promise<void> {
+      const res = await fn(uIn.value.trim(), pIn.value);
+      if (typeof res === 'string') err.textContent = res;
+      else err.textContent = '';
+    }
+    login.addEventListener('click', () => void submit(h.onLogin));
+    reg.addEventListener('click', () => void submit(h.onRegister));
+    row.append(login, reg);
+    acct.append(uIn, pIn, row, err);
+  }
+  body.appendChild(acct);
 
   const help = el('div', 'help');
   for (const [key, act] of CONTROL_HELP) {

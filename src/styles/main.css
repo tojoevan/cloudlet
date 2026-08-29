@@ -584,6 +584,45 @@ button {
   margin-top: 10px;
 }
 
+/* ---------- 账号分区 ---------- */
+.account {
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  margin-bottom: 18px;
+  background: var(--c-panel-2, rgba(255, 255, 255, 0.03));
+}
+
+.account .input {
+  font: inherit;
+  width: 100%;
+  padding: 9px 11px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--c-line);
+  background: var(--c-input, rgba(0, 0, 0, 0.2));
+  color: inherit;
+  box-sizing: border-box;
+}
+
+.account .tag {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--c-line);
+  color: var(--c-text);
+}
+
+.account .tag.tier {
+  background: linear-gradient(135deg, #b088f9, #7b5cff);
+  color: #fff;
+}
+
+.note.err {
+  color: #ff7b7b;
+  margin-top: 8px;
+}
+
 .help {
   margin-bottom: 14px;
 }

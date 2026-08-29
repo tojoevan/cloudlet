@@ -61,22 +61,33 @@ interface RequestResult {
 
 async function request(
   method: 'GET' | 'PUT',
-  deviceId: string,
+  ownerId: string,
+  token: string | null | undefined,
   body?: unknown,
 ): Promise<RequestResult> {
   if (isPaused()) return { ok: false, status: 0, skipped: true };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
-    const res = await fetch(`/api/save?device=${encodeURIComponent(deviceId)}`, {
+    const params = new URLSearchParams();
+    params.set('owner', ownerId);
+    const headers: Record<string, string> = {};
+    if (body) headers['content-type'] = 'application/json';
+    if (token) headers['authorization'] = `Bearer ${token}`;
+    const res = await fetch(`/api/save?${params.toString()}`, {
       method,
-      headers: body ? { 'content-type': 'application/json' } : undefined,
+      headers: Object.keys(headers).length ? headers : undefined,
       body: body ? JSON.stringify(body) : undefined,
       signal: ctrl.signal,
     });
     if (res.status === 404) {
       settle(true);
       return { ok: true, status: 404 };
+    }
+    if (res.status === 400 && method === 'PUT') {
+      // 等级校验未通过（疑似作弊或存档损坏）：当作错误，但不计入退避
+      settle(true);
+      return { ok: false, status: 400 };
     }
     if (!res.ok) {
       settle(false);
@@ -93,16 +104,28 @@ async function request(
   }
 }
 
-export async function cloudPull(deviceId: string): Promise<{ status: SyncStatus; doc?: GameState; updatedAt?: number }> {
-  const r = await request('GET', deviceId);
+/**
+ * 拉取存档。
+ * @param ownerId 账号模式下为 accountId，未登录时为设备 UUID
+ * @param token   登录态 JWT，未登录传 null
+ */
+export async function cloudPull(
+  ownerId: string,
+  token: string | null | undefined,
+): Promise<{ status: SyncStatus; doc?: GameState; updatedAt?: number }> {
+  const r = await request('GET', ownerId, token);
   if (r.skipped) return { status: 'paused' };
   if (!r.ok) return { status: r.status === 0 ? 'unavailable' : 'error' };
   if (!r.data?.doc) return { status: 'ok' };
   return { status: 'ok', doc: r.data.doc, updatedAt: r.data.updatedAt };
 }
 
-export async function cloudPush(deviceId: string, state: GameState): Promise<SyncStatus> {
-  const r = await request('PUT', deviceId, { doc: state });
+export async function cloudPush(
+  ownerId: string,
+  state: GameState,
+  token: string | null | undefined,
+): Promise<SyncStatus> {
+  const r = await request('PUT', ownerId, token, { doc: state });
   if (r.skipped) return 'paused';
   if (!r.ok) return r.status === 0 ? 'unavailable' : 'error';
   return 'ok';

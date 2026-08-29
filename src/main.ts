@@ -23,6 +23,7 @@ import {
   resetPause,
   type SyncStatus,
 } from './core/cloud';
+import * as auth from './core/auth';
 import { addItem, itemName } from './core/economy';
 import { cancelFocus, focusProgress, isFocusing, settleFocus, startFocus } from './core/focus';
 import { deliver } from './core/orders';
@@ -62,6 +63,23 @@ const audio = new AudioManager();
 const deviceId = getDeviceId();
 let state = loadLocal() ?? createInitialState(deviceId);
 state.deviceId = deviceId;
+
+/** 当前存档归属：登录后用 accountId，否则用设备 UUID。local-first 不受影响。 */
+function syncOwner(): { ownerId: string; token: string | null } {
+  if (auth.isLoggedIn()) {
+    return { ownerId: auth.accountId() ?? deviceId, token: auth.getToken() };
+  }
+  return { ownerId: deviceId, token: null };
+}
+
+// 启动恢复登录态：后台回源刷新档案，成功后用账号身份立刻同步一次（迁移设备进度）
+void auth.restore().then((p) => {
+  if (p) {
+    state.settings.cloudSync = true;
+    saveLocal(state);
+    void syncNow(false);
+  }
+});
 
 let syncStatus: SyncStatus = 'idle';
 let dirty = true;
@@ -156,47 +174,79 @@ const bar = new ActionBar({
         saveNow();
       },
     }),
-  onSettings: () =>
-    openSettingsPanel(state, describeStatus(syncStatus), {
-      onChannel: (c) => {
-        state.settings.channel = c;
-        audio.setChannel(c);
-      },
-      onRadio: (url) => {
-        state.settings.radioUrl = url;
-        audio.setRadioUrl(url);
-      },
-      onVolume: (v) => {
-        state.settings.volume = v;
-        audio.setVolume(v);
-      },
-      onPowerSave: (on) => {
-        state.settings.powerSave = on;
-        view.setPowerSave(on);
-      },
-      onRotate: () => view.rotateBy(Math.PI / 2),
-      onExport: () => exportCode(state),
-      onImport: (code) => {
-        const s = importCode(code);
-        if (!s) return toast('存档码无法识别');
-        state = s;
-        state.deviceId = deviceId;
-        saveLocal(state);
-        markDirty();
-        toast('存档已导入');
-        closeModal();
-      },
-      onSync: () => {
-        void syncNow(true).then(() => {
-          // 手动同步成功过一次，说明后端是通的，之后才自动同步
-          if (syncStatus === 'ok' && !state.settings.cloudSync) {
-            state.settings.cloudSync = true;
-            saveLocal(state);
-          }
-        });
-      },
-    }),
+  onSettings: () => openSettings(),
 });
+
+/** 打开设置面板（含账号分区）。登录/注册/登出成功后会再次调用本函数重渲染。 */
+function openSettings(): void {
+  openSettingsPanel(state, describeStatus(syncStatus), {
+    onChannel: (c) => {
+      state.settings.channel = c;
+      audio.setChannel(c);
+    },
+    onRadio: (url) => {
+      state.settings.radioUrl = url;
+      audio.setRadioUrl(url);
+    },
+    onVolume: (v) => {
+      state.settings.volume = v;
+      audio.setVolume(v);
+    },
+    onPowerSave: (on) => {
+      state.settings.powerSave = on;
+      view.setPowerSave(on);
+    },
+    onRotate: () => view.rotateBy(Math.PI / 2),
+    onExport: () => exportCode(state),
+    onImport: (code) => {
+      const s = importCode(code);
+      if (!s) return toast('存档码无法识别');
+      state = s;
+      state.deviceId = deviceId;
+      saveLocal(state);
+      markDirty();
+      toast('存档已导入');
+      closeModal();
+    },
+    onSync: () => {
+      void syncNow(true).then(() => {
+        // 手动同步成功过一次，说明后端是通的，之后才自动同步
+        if (syncStatus === 'ok' && !state.settings.cloudSync) {
+          state.settings.cloudSync = true;
+          saveLocal(state);
+        }
+      });
+    },
+    onLogin: async (username, password) => {
+      const r = await auth.login(username, password);
+      if (!r.ok) return r.error ?? '登录失败';
+      state.accountId = r.profile!.accountId;
+      state.settings.cloudSync = true;
+      saveLocal(state);
+      // 把本机进度迁移/同步到账号（首次账号同步服务端宽松放行等级）
+      await syncNow(true);
+      openSettings();
+      return true;
+    },
+    onRegister: async (username, password) => {
+      const r = await auth.register(username, password);
+      if (!r.ok) return r.error ?? '注册失败';
+      state.accountId = r.profile!.accountId;
+      state.settings.cloudSync = true;
+      saveLocal(state);
+      await syncNow(true);
+      openSettings();
+      return true;
+    },
+    onLogout: () => {
+      auth.logout();
+      state.accountId = undefined;
+      saveLocal(state);
+      openSettings();
+      return true;
+    },
+  });
+}
 
 uiRoot.append(hud.el, board.el, bar.el, focusBar);
 const speech = new SpeechBubble(uiRoot);
@@ -498,7 +548,8 @@ function ensureAudio(): boolean {
 // ---------- 存档与云同步 ----------
 function saveNow(): void {
   saveLocal(state);
-  void cloudPush(deviceId, state).then((s) => {
+  const { ownerId, token } = syncOwner();
+  void cloudPush(ownerId, state, token).then((s) => {
     syncStatus = s;
   });
 }
@@ -511,7 +562,8 @@ async function syncNow(manual: boolean): Promise<void> {
   }
   if (manual) resetPause();
   syncStatus = 'syncing';
-  const r = await cloudPull(deviceId);
+  const { ownerId, token } = syncOwner();
+  const r = await cloudPull(ownerId, token);
   if (r.status !== 'ok') {
     syncStatus = r.status;
     if (manual) toast(describeStatus(r.status));
@@ -522,12 +574,15 @@ async function syncNow(manual: boolean): Promise<void> {
     if (take) {
       state = r.doc;
       state.deviceId = deviceId;
+      if (auth.isLoggedIn()) state.accountId = auth.accountId() ?? state.accountId;
       saveLocal(state);
       markDirty();
       if (manual) toast('已切换到云端存档');
     }
   }
-  syncStatus = await cloudPush(deviceId, state);
+  syncStatus = await cloudPush(ownerId, state, token);
+  // 登录态下顺手回源刷新会员等级（后台可能改过），保持 HUD 徽章最新
+  if (auth.isLoggedIn()) await auth.refresh();
   if (manual) toast(describeStatus(syncStatus));
 }
 
@@ -655,7 +710,7 @@ function frame(t: number): void {
     saveNow();
   }
 
-  hud.update(state, now);
+  hud.update(state, now, auth.memberTier());
   board.update(state, doDeliver);
   bar.update(state, now);
   autoChatter(now);

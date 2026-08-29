@@ -1,0 +1,19 @@
+[Unit]
+Description=Cloudlet API Gateway（账号 + 云存档 + 管理后台）
+After=network.target
+
+[Service]
+Type=simple
+# 运行用户请按需调整；需对其有 /opt/cloudlet 目录读权限
+User=www-data
+WorkingDirectory=/opt/cloudlet/server
+ExecStart=/usr/bin/node /opt/cloudlet/server/index.mjs
+# 密钥与环境变量全部来自该文件，切勿提交到仓库
+EnvironmentFile=/opt/cloudlet/deploy/.env
+Restart=on-failure
+RestartSec=3
+# 防 OOM 自杀后重启
+OOMScoreAdjust=-100
+
+[Install]
+WantedBy=multi-user.target

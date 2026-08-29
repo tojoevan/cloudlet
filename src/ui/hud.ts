@@ -45,6 +45,8 @@ export class HUD {
   /** 图鉴与成就做成可点的进度展示，既是入口也是收集欲的钩子 */
   private codex = makeChip(0x9b8ec4, 'clickable');
   private ach = makeChip(0xe9b824, 'clickable');
+  /** 会员等级徽章，来源是账号档案（服务端权威），未登录时恒为 V1 */
+  private tier = makeChip(0xb088f9, 'clickable');
 
   constructor(onCodex: () => void, onAch: () => void, onInv: () => void) {
     this.el.append(
@@ -55,6 +57,7 @@ export class HUD {
       this.fever,
       this.codex.root,
       this.ach.root,
+      this.tier.root,
     );
     this.fever.style.display = 'none';
     this.codex.root.addEventListener('click', onCodex);
@@ -62,9 +65,12 @@ export class HUD {
     this.store.root.addEventListener('click', onInv);
   }
 
-  update(state: GameState, now: number): void {
+  update(state: GameState, now: number, memberTier = 1): void {
     this.lv.text.textContent = `Lv ${state.level}`;
     this.lv.sub.textContent = `${state.exp}/${expForLevel(state.level)}`;
+
+    this.tier.text.textContent = `V${memberTier}`;
+    this.tier.sub.textContent = '会员';
 
     this.coin.text.textContent = fmt(state.coins);
     this.coin.sub.textContent = '金币';

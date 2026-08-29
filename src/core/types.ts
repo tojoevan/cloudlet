@@ -92,6 +92,8 @@ export interface Codex {
 export interface GameState {
   version: number;
   deviceId: string;
+  /** 绑定的账号 id（登录后写入），未登录为空。仅作归属标记，等级/会员以服务端为准。 */
+  accountId?: string;
   /** 最后保存时刻（ms）。回来时用它算离线时长。 */
   savedAt: number;
   level: number;

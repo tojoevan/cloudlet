@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>云上小镇 · 管理后台</title>
+<style>
+  :root {
+    --bg: #14161c; --panel: #1d212b; --line: #2b3140; --text: #e8eaf0;
+    --muted: #9aa3b2; --accent: #7b5cff; --good: #6a994e; --bad: #e07a5f;
+    --radius: 14px; --radius-sm: 9px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 22px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 22px; }
+  .login { max-width: 420px; margin: 12vh auto; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 16px; margin-bottom: 16px;
+  }
+  .stats { display: flex; gap: 14px; flex-wrap: wrap; }
+  .stat { flex: 1; min-width: 140px; }
+  .stat .n { font-size: 26px; font-weight: 700; }
+  .stat .l { color: var(--muted); font-size: 12px; }
+  input, button, select {
+    font: inherit; border-radius: var(--radius-sm); border: 1px solid var(--line);
+    background: #0f1116; color: var(--text); padding: 9px 11px;
+  }
+  input:focus, select:focus { outline: 1px solid var(--accent); }
+  button { cursor: pointer; background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.ghost { background: transparent; color: var(--text); }
+  button.danger { background: var(--bad); border-color: var(--bad); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--line); }
+  .tag.tier { background: linear-gradient(135deg, #b088f9, #7b5cff); color: #fff; }
+  .tag.ban { background: var(--bad); color: #fff; }
+  .muted { color: var(--muted); }
+  .pager { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
+  .err { color: var(--bad); font-size: 13px; min-height: 18px; }
+  .hidden { display: none !important; }
+  .mt { margin-top: 10px; }
+  .toast {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    background: var(--panel); border: 1px solid var(--line); padding: 10px 16px;
+    border-radius: var(--radius-sm); opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>云上小镇 · 管理后台</h1>
+  <button id="logout" class="ghost hidden">退出后台</button>
+</header>
+
+<div id="login" class="login card">
+  <h2 style="margin-top:0">请输入管理令牌</h2>
+  <p class="muted">令牌由服务端 ADMIN_TOKEN 环境变量提供，仅在管理后台使用，与玩家账号体系完全隔离。</p>
+  <div class="row mt">
+    <input id="token" class="grow" type="password" placeholder="x-admin-token" />
+    <button id="enter">进入</button>
+  </div>
+  <div id="loginErr" class="err"></div>
+</div>
+
+<div id="app" class="wrap hidden">
+  <div class="card">
+    <div class="stats" id="stats"></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <input id="search" class="grow" placeholder="搜索用户名…" />
+      <button id="searchBtn" class="ghost">搜索</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>用户名</th><th>会员</th><th>等级</th><th>经验</th>
+          <th>设备</th><th>最近登录</th><th>注册于</th><th>状态</th><th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="pager mt">
+      <button id="prev" class="ghost">上一页</button>
+      <span id="pageInfo" class="muted"></span>
+      <button id="next" class="ghost">下一页</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const API = '';
+let TOKEN = localStorage.getItem('cloudlet_admin_token') || '';
+let PAGE = 1, SIZE = 20, Q = '', TOTAL = 0;
+
+const $ = (id) => document.getElementById(id);
+
+function authHeaders(extra = {}) {
+  return { 'content-type': 'application/json', 'x-admin-token': TOKEN, ...extra };
+}
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, { ...opts, headers: authHeaders(opts.headers || {}) });
+  if (res.status === 401) { toast('令牌无效或已失效'); logout(); throw new Error('unauthorized'); }
+  let data = {};
+  try { data = await res.json(); } catch {}
+  return { status: res.status, data };
+}
+let toastTimer;
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+function fmtTime(ms) {
+  if (!ms) return '—';
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+function showApp() {
+  $('login').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  $('logout').classList.remove('hidden');
+}
+function logout() {
+  TOKEN = ''; localStorage.removeItem('cloudlet_admin_token');
+  $('app').classList.add('hidden');
+  $('logout').classList.add('hidden');
+  $('login').classList.remove('hidden');
+}
+
+async function loadStats() {
+  const { data } = await api('/api/admin/stats');
+  $('stats').innerHTML = `
+    <div class="stat"><div class="n">${data.total ?? 0}</div><div class="l">总用户</div></div>
+    <div class="stat"><div class="n">${data.activeWeek ?? 0}</div><div class="l">近 7 日活跃</div></div>
+    <div class="stat"><div class="n">${data.banned ?? 0}</div><div class="l">已封禁</div></div>`;
+}
+
+async function loadAccounts() {
+  const { data } = await api(`/api/admin/accounts?page=${PAGE}&size=${SIZE}&q=${encodeURIComponent(Q)}`);
+  TOTAL = data.total ?? 0;
+  const rows = $('rows');
+  rows.innerHTML = '';
+  for (const a of (data.items || [])) {
+    const tr = document.createElement('tr');
+    const tier = `<span class="tag tier">V${a.memberTier}</span>`;
+    const ban = a.banned ? `<span class="tag ban">已封禁</span>` : `<span class="tag">正常</span>`;
+    tr.innerHTML = `
+      <td>${escapeHtml(a.username)}</td>
+      <td>${tier}</td>
+      <td>Lv ${a.level}</td>
+      <td>${a.exp}</td>
+      <td>${a.deviceCount}</td>
+      <td class="muted">${fmtTime(a.lastLogin)}</td>
+      <td class="muted">${fmtTime(a.createdAt)}</td>
+      <td>${ban}</td>
+      <td></td>`;
+    const op = document.createElement('div');
+    op.className = 'row';
+
+    const tierSel = document.createElement('input');
+    tierSel.type = 'number'; tierSel.min = '1'; tierSel.max = '9'; tierSel.value = a.memberTier;
+    tierSel.style.width = '56px';
+    const saveTier = document.createElement('button');
+    saveTier.textContent = '会员';
+    saveTier.onclick = async () => {
+      await api(`/api/admin/accounts/${a.accountId}`, { method: 'PATCH', body: JSON.stringify({ memberTier: Number(tierSel.value) }) });
+      toast('会员等级已更新'); loadAccounts(); loadStats();
+    };
+    const banBtn = document.createElement('button');
+    banBtn.className = 'ghost'; banBtn.textContent = a.banned ? '解封' : '封禁';
+    banBtn.onclick = async () => {
+      await api(`/api/admin/accounts/${a.accountId}`, { method: 'PATCH', body: JSON.stringify({ banned: !a.banned }) });
+      toast(a.banned ? '已解封' : '已封禁'); loadAccounts(); loadStats();
+    };
+    const del = document.createElement('button');
+    del.className = 'danger'; del.textContent = '删除';
+    del.onclick = async () => {
+      if (!confirm(`确认删除用户「${a.username}」？存档与索引一并清除，不可恢复。`)) return;
+      await api(`/api/admin/accounts/${a.accountId}`, { method: 'DELETE' });
+      toast('已删除'); loadAccounts(); loadStats();
+    };
+    op.append(tierSel, saveTier, banBtn, del);
+    tr.lastChild.appendChild(op);
+    rows.appendChild(tr);
+  }
+  const pages = Math.max(1, Math.ceil(TOTAL / SIZE));
+  $('pageInfo').textContent = `第 ${PAGE} / ${pages} 页 · 共 ${TOTAL} 人`;
+  $('prev').disabled = PAGE <= 1;
+  $('next').disabled = PAGE >= pages;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+async function enter() {
+  TOKEN = $('token').value.trim();
+  if (!TOKEN) { $('loginErr').textContent = '请输入令牌'; return; }
+  try {
+    const { status } = await api('/api/admin/stats');
+    if (status !== 200) { $('loginErr').textContent = '令牌无效'; return; }
+    localStorage.setItem('cloudlet_admin_token', TOKEN);
+    showApp(); await refreshAll();
+  } catch {}
+}
+async function refreshAll() { await loadStats(); await loadAccounts(); }
+
+$('enter').onclick = enter;
+$('token').addEventListener('keydown', (e) => { if (e.key === 'Enter') enter(); });
+$('logout').onclick = logout;
+$('searchBtn').onclick = () => { Q = $('search').value.trim(); PAGE = 1; loadAccounts(); };
+$('search').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('searchBtn').click(); });
+$('prev').onclick = () => { if (PAGE > 1) { PAGE--; loadAccounts(); } };
+$('next').onclick = () => { PAGE++; loadAccounts(); };
+
+if (TOKEN) { showApp(); refreshAll().catch(() => {}); }
+</script>
+</body>
+</html>

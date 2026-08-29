@@ -33,5 +33,8 @@ echo "→ 登记租户: ${APP}"
 post "/v1/a/${APP}/tenants" "{\"tenant_id\":\"${APP}\",\"name\":\"${NAME}\"}"
 
 echo
-echo "完成。存档将落在 /t/${APP}/c/saves/<deviceId>"
+echo "完成。本网关用到三个按 id 存储的集合（首次写入时自动建好，无需显式创建）："
+echo "  /t/${APP}/c/saves      —— 玩家存档（owner = 设备UUID 或 账号ID）"
+echo "  /t/${APP}/c/accounts   —— 账号档案（含 pbkdf2 密码哈希、等级、会员等级）"
+echo "  /t/${APP}/c/usernames  —— 用户名→账号ID 的唯一索引（用于登录解析与查重）"
 echo "注意：租户必须建在 ${APP} 这个 app 下，才能与微家事的 jiashiben 数据隔离。"
