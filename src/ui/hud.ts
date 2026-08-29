@@ -39,13 +39,14 @@ export class HUD {
   private lv = makeChip(null, 'lv');
   private coin = makeChip(0xe9b824);
   private prop = makeChip(0x6a994e);
-  private store = makeChip(0x457b9d);
+  /** 仓库容量本身就是仓库入口，点它开仓库面板 */
+  private store = makeChip(0x457b9d, 'clickable');
   private fever = el('div', 'chip fever', '热潮 ×2');
   /** 图鉴与成就做成可点的进度展示，既是入口也是收集欲的钩子 */
   private codex = makeChip(0x9b8ec4, 'clickable');
   private ach = makeChip(0xe9b824, 'clickable');
 
-  constructor(onCodex: () => void, onAch: () => void) {
+  constructor(onCodex: () => void, onAch: () => void, onInv: () => void) {
     this.el.append(
       this.lv.root,
       this.coin.root,
@@ -58,6 +59,7 @@ export class HUD {
     this.fever.style.display = 'none';
     this.codex.root.addEventListener('click', onCodex);
     this.ach.root.addEventListener('click', onAch);
+    this.store.root.addEventListener('click', onInv);
   }
 
   update(state: GameState, now: number): void {
@@ -126,7 +128,6 @@ export interface ActionHandlers {
   onHarvestAll: () => void;
   onReplant: () => void;
   onBuild: () => void;
-  onInventory: () => void;
   onSettings: () => void;
   onFocus: () => void;
 }
@@ -162,7 +163,6 @@ export class ActionBar {
       this.replantBtn,
       mk('建造', h.onBuild).btn,
       focus.btn,
-      mk('仓库', h.onInventory).btn,
       mk('设置', h.onSettings, 'ghost').btn,
     );
   }

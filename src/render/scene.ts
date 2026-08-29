@@ -18,6 +18,14 @@ const PINCH_SENS = 0.0003;
 /** 触屏双指捏合的阻尼，越小越跟手但更慢（0.22→0.15） */
 const TOUCH_PINCH_DAMP = 0.15;
 /**
+ * 触控板双指上下滑 / 鼠标滚轮的缩放灵敏度，越小越慢。
+ * 必须按 deltaY 成比例缩放：触控板每次事件 deltaY 很小但事件极密（每秒几十次），
+ * 若用「每个事件固定 ×1.08」的档位制，总缩放量会被事件数量放大——一次轻扫就
+ * 瞬间撞到缩放上下限，这正是「触控板缩放太灵敏」的根源。改成按 deltaY 累计后，
+ * 一次手势的总缩放量只跟滑动距离有关，与事件数量无关。
+ */
+const WHEEL_SENS = 0.0006;
+/**
  * 专注/展示模式的「最佳缩放」：把整座岛框进视野、留出天空余量的舒适比例。
  * 比默认 1.0 略拉远，旋转时既看得到全貌又不会空旷。
  */
@@ -211,8 +219,14 @@ export class SceneView {
           // 极缓的缩放——系数越小越慢。Mac 上“双指放大缩小”走的就是这条。
           this.setZoom(this.zoom * Math.exp(-e.deltaY * PINCH_SENS));
         } else {
-          // 普通鼠标滚轮：每格一个明确档位
-          this.setZoom(this.zoom * (e.deltaY > 0 ? 0.92 : 1.08));
+          // 触控板双指上下滑 / 鼠标滚轮：按 deltaY 成比例缩放
+          // deltaMode 归一化：Firefox 用「行」(1) 或「页」(2)，需换算成像素
+          // 才能与 Chrome/Safari 的像素模式(deltaMode=0)手感一致。
+          // 33 ≈ 100/3，即 Firefox 一格(3 行)与 Chrome 一格(100px)等价。
+          let dy = e.deltaY;
+          if (e.deltaMode === 1) dy *= 33;
+          else if (e.deltaMode === 2) dy *= 100;
+          this.setZoom(this.zoom * Math.exp(-dy * WHEEL_SENS));
         }
       },
       { passive: false },

@@ -90,6 +90,7 @@ button {
   display: flex;
   gap: 8px;
   align-items: center;
+  justify-content: center; /* 与小岛、弹窗同为居中轴，视觉更平衡 */
   flex-wrap: wrap;
   transition: top 0.2s ease, opacity 0.35s ease, transform 0.35s ease;
 }
@@ -291,6 +292,13 @@ button {
   background: var(--c-accent);
 }
 
+/* 一键收获：没得收时与其他按钮保持一致（蓝底白字），有得收才点亮浅红提醒。
+   .btn.accent 目前只用于此按钮与专注中高亮（后者从不禁用），故可安全复用。 */
+.btn.accent:disabled {
+  background: var(--c-blue);
+  color: #fff;
+}
+
 .btn.sm {
   padding: 6px 10px;
   min-height: 30px;
@@ -356,7 +364,7 @@ button {
 }
 
 .modal {
-  width: min(520px, 100%);
+  width: min(800px, 100%);
   max-height: 78vh;
   overflow-y: auto;
   background: var(--c-panel-solid);
@@ -404,7 +412,8 @@ button {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  /* 固定 4 列：原先 minmax(140px) 在 520px 弹窗下只排得下 3 列 */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -728,5 +737,9 @@ button {
     flex: 1;
     padding: 9px 8px;
     font-size: 12px;
+  }
+  /* 窄屏塞 4 列卡片会挤到看不清，降级为 2 列 */
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

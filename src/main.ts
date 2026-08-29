@@ -96,6 +96,7 @@ function markDirty(): void {
 const hud = new HUD(
   () => openCodexPanel(state),
   () => openAchievementsPanel(state),
+  () => openInventoryPanel(state, (id, count) => doSell(id, count)),
 );
 const board = new OrderBoard();
 
@@ -133,7 +134,6 @@ const bar = new ActionBar({
     saveNow();
   },
   onBuild: () => openBuildPanel(state, { onBuild: doBuild, onBuildFactory: doBuildFactory }),
-  onInventory: () => openInventoryPanel(state, (id, count) => doSell(id, count)),
   onFocus: () =>
     openFocusPanel(state, Date.now(), {
       onStart: (minutes) => {
@@ -584,6 +584,9 @@ function frame(t: number): void {
     if (ev.kind === 'factory' && ev.item) {
       audio.play('coin');
       toast(`工厂产出 ${itemName(ev.item)}`);
+      // 专注模式下 UI 默认隐藏、视线在岛中央，底部 toast 容易被忽略，
+      // 所以在屏幕中央补一条醒目飘字，保证产出提示一定看得见
+      if (isFocusing(state, now)) floatAtCanvas(`工厂产出 ${itemName(ev.item)}`, 'good');
       markDirty(); // 产出可能点亮图鉴，进而触发成就
     }
     // 专注期间的自动农活刻意静默——弹提示就打扰人学习了
