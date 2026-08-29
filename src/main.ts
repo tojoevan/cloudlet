@@ -30,7 +30,7 @@ import { deliver } from './core/orders';
 import { exportCode, getDeviceId, importCode, loadLocal, saveLocal } from './core/save';
 import { advance, tick } from './core/simulation';
 import { createInitialState } from './core/state';
-import type { BuildingType, CropId, FactoryType, ItemId } from './core/types';
+import type { BuildingType, CropId, FactoryType, GameState, ItemId } from './core/types';
 import { RECIPE_BY_ID } from './data/factories';
 import { randomLine, randomFarmLine, randomLumberLine, randomRanchLine } from './data/lines';
 import { plotPosition, World } from './render/world';
@@ -558,6 +558,20 @@ function saveNow(): void {
   });
 }
 
+/** 本地是否还是一份「刚开局、没玩过」的空白档（不应覆盖云端真实进度）。 */
+function isFreshLocal(s: GameState): boolean {
+  const freshPlots = s.plots.every((p) => p.crop === null && p.plantedAt === 0);
+  return (
+    s.level === 1 &&
+    s.exp === 0 &&
+    s.coins === 300 &&
+    s.gems === 0 &&
+    s.stats.playSeconds === 0 &&
+    s.factories.length === 0 &&
+    freshPlots
+  );
+}
+
 async function syncNow(manual: boolean): Promise<void> {
   // 后端没起来时会自动退避，别让定时器一直空转
   if (!manual && isPaused()) {
@@ -573,15 +587,23 @@ async function syncNow(manual: boolean): Promise<void> {
     if (manual) toast(describeStatus(r.status));
     return;
   }
-  if (r.doc && r.doc.savedAt > state.savedAt + 5_000) {
-    const take = window.confirm('云端有更新的进度，要切换到云端存档吗？（选「取消」保留本机进度并覆盖云端）');
-    if (take) {
-      state = r.doc;
-      state.deviceId = deviceId;
-      if (auth.isLoggedIn()) state.accountId = auth.accountId() ?? state.accountId;
-      saveLocal(state);
-      markDirty();
-      if (manual) toast('已切换到云端存档');
+  if (r.doc) {
+    // 本地还是一份「刚开局、没玩过」的空白档时，优先采用云端真实进度，
+    // 否则会反过来把空档推上去、清空云端（常见于新设备首次登录）。
+    const fresh = isFreshLocal(state);
+    const cloudNewer = r.doc.savedAt > state.savedAt + 5_000;
+    if (fresh || cloudNewer) {
+      const take = fresh
+        ? true
+        : window.confirm('云端有更新的进度，要切换到云端存档吗？（选「取消」保留本机进度并覆盖云端）');
+      if (take) {
+        state = r.doc;
+        state.deviceId = deviceId;
+        if (auth.isLoggedIn()) state.accountId = auth.accountId() ?? state.accountId;
+        saveLocal(state);
+        markDirty();
+        if (manual) toast(fresh ? '已从云端同步进度' : '已切换到云端存档');
+      }
     }
   }
   syncStatus = await cloudPush(ownerId, state, token);
