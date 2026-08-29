@@ -201,10 +201,11 @@ function openSettings(): void {
     onImport: (code) => {
       const s = importCode(code);
       if (!s) return toast('存档码无法识别');
+      s.savedAt = Date.now(); // 标为最新，避免被云端旧档在下次同步时反覆盖
       state = s;
       state.deviceId = deviceId;
       saveLocal(state);
-      markDirty();
+      void syncNow(true); // 立即推云，确保线上账号（如 zhaoyouhan）同步更新
       toast('存档已导入');
       closeModal();
     },
