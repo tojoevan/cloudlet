@@ -554,7 +554,10 @@ async function handleSave(req, res, cors) {
       if (row.owner_openid !== owner) return send(res, 403, { error: 'forbidden' }, cors);
       const mirror = { level: row.doc.level, exp: row.doc.exp };
       const firstSync = !row.doc.synced; // 首次建档/账号迁移：放开等级跳跃限制
-      const v = validateLevel(parsed.doc, firstSync ? null : mirror, firstSync);
+      // 显式导入存档码 ?import=1 也走 loose：放开等级跳跃，但仍封顶 MAX_LEVEL_INIT 且禁止经验越界
+      const importMode = url.searchParams.get('import') === '1';
+      const loose = firstSync || importMode;
+      const v = validateLevel(parsed.doc, loose ? null : mirror, loose);
       if (!v.ok) return send(res, 400, { error: '等级数据异常，已拒绝保存' }, cors);
       const doc = row.doc;
       doc.synced = true;

@@ -205,7 +205,10 @@ function openSettings(): void {
       state = s;
       state.deviceId = deviceId;
       saveLocal(state);
-      void syncNow(true); // 立即推云，确保线上账号（如 zhaoyouhan）同步更新
+      // 导入视作账号迁移：带 ?import=1 走 loose 校验（放开等级跳跃，仍封顶/禁越界），
+      // 直接覆盖云端，不走 pull-first，避免被云端旧档反覆盖。
+      const { ownerId, token } = syncOwner();
+      void cloudPush(ownerId, state, token, { importMode: true });
       toast('存档已导入');
       closeModal();
     },

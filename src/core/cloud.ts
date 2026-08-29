@@ -64,6 +64,7 @@ async function request(
   ownerId: string,
   token: string | null | undefined,
   body?: unknown,
+  importMode = false,
 ): Promise<RequestResult> {
   if (isPaused()) return { ok: false, status: 0, skipped: true };
   const ctrl = new AbortController();
@@ -71,6 +72,7 @@ async function request(
   try {
     const params = new URLSearchParams();
     params.set('owner', ownerId);
+    if (importMode) params.set('import', '1');
     const headers: Record<string, string> = {};
     if (body) headers['content-type'] = 'application/json';
     if (token) headers['authorization'] = `Bearer ${token}`;
@@ -124,8 +126,9 @@ export async function cloudPush(
   ownerId: string,
   state: GameState,
   token: string | null | undefined,
+  opts: { importMode?: boolean } = {},
 ): Promise<SyncStatus> {
-  const r = await request('PUT', ownerId, token, { doc: state });
+  const r = await request('PUT', ownerId, token, { doc: state }, opts.importMode);
   if (r.skipped) return 'paused';
   if (!r.ok) return r.status === 0 ? 'unavailable' : 'error';
   return 'ok';
