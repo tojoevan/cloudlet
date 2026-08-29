@@ -3,8 +3,8 @@
  *
  * 架构（对齐微家事，路C 对接通用网关）：
  *   [ 浏览器前端 ] → HTTPS /api/* → [ 本网关（持有 GATEWAY_KEY / JWT_SECRET）]
- *     → T2 JWT → [ 微家事网关 your-gateway.example.com /api/t2data ] → [ cloudflarepool 数据湖 weijiashi 租户 ]
- *   本网关不再直连数据湖、不持有 X-Sync-Key；数据湖凭证收敛到微家事网关一侧。
+ *     → T2 JWT(tid=cloudlet) → [ 微家事网关 your-gateway.example.com /api/t2data ] → [ cloudflarepool 数据湖 cloudlet 租户 ]
+ *   本网关不再直连数据湖、不持有 X-Sync-Key；数据湖凭证收敛到微家事网关一侧；数据按租户隔离。
  *
  * 为什么需要这层（数据湖直连的五个卡点）：
  *   1. 数据湖零 CORS，浏览器跨域调用预检直接 403
@@ -278,7 +278,8 @@ async function t4Lake(method, collection, id, ownerId, body) {
 }
 
 /** 对接微家事通用网关：经 /api/t2data 通道（T2 account JWT）代理到数据湖。
- *  数据湖 tenant 固定为微家事网关的 weijiashi，cloudlet 数据用 cloudlet_ 前缀集合名隔离。 */
+ *  T2 JWT 带 tid:'cloudlet'，由微家事网关验签后路由到数据湖的独立 cloudlet 租户
+ *  （/t/cloudlet/...）；集合名仍用 cloudlet_ 前缀以便可读性。 */
 function signT2Jwt(sub, ttl = 3600) {
   const privateKey = crypto.createPrivateKey(GATEWAY_KEY);
   const header = { alg: 'EdDSA', typ: 'JWT', kid: 'gw1' };
@@ -287,6 +288,7 @@ function signT2Jwt(sub, ttl = 3600) {
     sub,
     aid: GATEWAY_APP_ID,
     typ: 'account',
+    tid: 'cloudlet',
     scp: ['user:read', 'user:write'],
     iss: 'gateway',
     aud: 'your-data-lake.example.com',
