@@ -271,7 +271,9 @@ async function t4Lake(method, collection, id, ownerId, body) {
 async function lakeUpsert(collection, id, doc, ownerId) {
   let r = await lake('PUT', collection, id, ownerId, { doc });
   if (r.status === 404) {
-    r = await lake('POST', collection, id, ownerId, { id, doc });
+    // 数据湖通用集合 API：PUT 仅更新已存在行（不存在返回 404），
+    // 因此 404 时 POST 到集合根（id 放 body）创建，而非 POST 到 /{id}（该路由不存在）。
+    r = await lake('POST', collection, undefined, ownerId, { id, doc });
   }
   return r;
 }
@@ -523,7 +525,7 @@ async function handleSave(req, res, cors) {
 
     let r = await lake('PUT', COLLECTION_SAVES, owner, owner, { doc: parsed.doc });
     if (r.status === 404) {
-      r = await lake('POST', COLLECTION_SAVES, owner, owner, { id: owner, doc: parsed.doc });
+      r = await lake('POST', COLLECTION_SAVES, undefined, owner, { id: owner, doc: parsed.doc });
     }
     if (!r.ok) return send(res, 502, { error: `lake ${r.status}` }, cors);
     return send(res, 200, { ok: true, updatedAt: Date.now() }, cors);
