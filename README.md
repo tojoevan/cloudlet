@@ -73,18 +73,20 @@ curl "http://127.0.0.1:8787/api/health"
 
 前端静态产物放在宝塔站点根目录，网关作为 pm2 常驻进程监听 `127.0.0.1:8787`，宝塔反向代理把 `/api` 与 `/admin` 指过去，二者同机同源。
 
-```bash
-# 一次性：在数据湖登记租户
-export INTERNAL_KEY=...
-npm run init:tenant
+**数据湖连接二选一**（详见 `deploy/.env.example`）：
+- **路A（推荐）直接对接微家事网关 T4 数据层**：在 `your-gateway.example.com/admin` 的「密钥」里签发一个 `data:read`+`data:write` 作用域的密钥，把 `raw_secret` 填进 `T4_KEY`，`T4_BASE` 默认即微家事网关。cloudlet 复用和微家事同一套数据湖、独立 `cloudlet_*` 表、用户隔离。
+- **路B 原始 cloudflarepool**：填 `INTERNAL_KEY`（X-Sync-Key），`LAKE_BASE` 指向数据湖原始地址。
 
+```bash
 # 部署到 VPS（静态 → /www/wwwroot/cloudlet，网关 → /opt/cloudlet-api）
 export VPS=user@your-server
-export INTERNAL_KEY=... JWT_SECRET=$(openssl rand -hex 32) ADMIN_TOKEN=$(openssl rand -hex 16)
+export JWT_SECRET=$(openssl rand -hex 32) ADMIN_TOKEN=$(openssl rand -hex 16)
+export T4_KEY=<微家事后台签发的 data 作用域密钥 raw_secret>   # 路A
+# 或：export INTERNAL_KEY=<原始数据湖 X-Sync-Key>              # 路B
 bash deploy/deploy.sh
 ```
 
-部署后：站点根路径为游戏，管理后台在 `/admin`（用 `ADMIN_TOKEN` 进入）。网关用 `deploy/start.sh` 包装脚本加载 `.env` 后常驻（pm2 守护进程不继承交互 shell 的环境变量，故不能靠 `source .env && pm2 start`）。详见 `deploy/.env.example`。
+部署后：站点根路径为游戏，管理后台在 `/admin`（用 `ADMIN_TOKEN` 进入）。网关用 `deploy/start.sh` 包装脚本加载 `.env` 后常驻（pm2 守护进程不继承交互 shell 的环境变量，故不能靠 `source .env && pm2 start`）。
 
 ## 结构
 

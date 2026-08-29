@@ -38,10 +38,15 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 const PORT = Number(process.env.PORT || 8787);
 const LAKE = (process.env.LAKE_BASE || 'https://your-data-lake.example.com').replace(/\/$/, '');
 const TENANT = process.env.LAKE_TENANT || 'cloudlet';
-const COLLECTION_SAVES = process.env.LAKE_COLLECTION || 'saves';
-const COLLECTION_ACCOUNTS = process.env.LAKE_COLLECTION_ACCOUNTS || 'accounts';
-const COLLECTION_USERNAMES = process.env.LAKE_COLLECTION_USERNAMES || 'usernames';
+// 集合（表）名统一加 cloudlet_ 前缀，避免与同数据湖下其他应用的表冲突
+const COLLECTION_SAVES = process.env.LAKE_COLLECTION || 'cloudlet_saves';
+const COLLECTION_ACCOUNTS = process.env.LAKE_COLLECTION_ACCOUNTS || 'cloudlet_accounts';
+const COLLECTION_USERNAMES = process.env.LAKE_COLLECTION_USERNAMES || 'cloudlet_usernames';
 const INTERNAL_KEY = process.env.INTERNAL_KEY;
+// 路A：直接对接微家事网关的 T4 数据层（/api/t4data），用 data 作用域 API Key 鉴权
+const T4_MODE = !!process.env.T4_KEY;
+const T4_BASE = (process.env.T4_BASE || 'https://your-gateway.example.com/api/t4data').replace(/\/$/, '');
+const T4_KEY = process.env.T4_KEY || '';
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '';
 const JWT_SECRET = process.env.JWT_SECRET || '';
 const PBKDF2_ITER = Number(process.env.PBKDF2_ITER || 120_000);
@@ -69,12 +74,12 @@ function serveAdmin(res, cors) {
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
 
-if (!MEMORY_MODE && !INTERNAL_KEY) {
-  console.error('[cloudlet-api] 缺少 INTERNAL_KEY，拒绝启动');
-  process.exit(1);
-}
 if (!JWT_SECRET) {
   console.error('[cloudlet-api] 缺少 JWT_SECRET，拒绝启动');
+  process.exit(1);
+}
+if (!MEMORY_MODE && !T4_MODE && !INTERNAL_KEY) {
+  console.error('[cloudlet-api] 缺少数据湖凭证：请设置 T4_KEY（微家事网关 API Key，路A）或 INTERNAL_KEY（原始 cloudflarepool 密钥，路B）');
   process.exit(1);
 }
 
@@ -210,9 +215,15 @@ async function memLake(method, collection, id, ownerId, body) {
   return { status: 405, ok: false, json: async () => ({}) };
 }
 
-/** 统一数据湖调用，返回 { status, json() }，屏蔽内存/真实差异 */
+/** 统一数据湖调用，返回 { status, ok, json() }，屏蔽内存 / 原始 cloudflarepool / 微家事 T4 网关 差异 */
 async function lake(method, collection, id, ownerId, body) {
   if (MEMORY_MODE) return memLake(method, collection, id, ownerId, body);
+  if (T4_MODE) return t4Lake(method, collection, id, ownerId, body);
+  return rawLake(method, collection, id, ownerId, body);
+}
+
+/** 原始 cloudflarepool（X-Sync-Key 通道） */
+async function rawLake(method, collection, id, ownerId, body) {
   const base = `/t/${encodeURIComponent(TENANT)}/c/${encodeURIComponent(collection)}`;
   const path = id ? `${base}/${encodeURIComponent(id)}` : base;
   const ctrl = new AbortController();
@@ -229,7 +240,28 @@ async function lake(method, collection, id, ownerId, body) {
       signal: ctrl.signal,
     });
     const status = res.status;
-    return { status, json: async () => { try { return await res.json(); } catch { return {}; } } };
+    const ok = status >= 200 && status < 300;
+    return { status, ok, json: async () => { try { return await res.json(); } catch { return {}; } } };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 微家事网关 T4 数据层：/api/t4data/rows/{table}[/{id}]，Bearer API Key 鉴权 */
+async function t4Lake(method, collection, id, ownerId, body) {
+  const base = `${T4_BASE}/rows/${encodeURIComponent(collection)}`;
+  const url = id ? `${base}/${encodeURIComponent(id)}` : `${base}?limit=1000`;
+  const headers = { 'content-type': 'application/json', Authorization: 'Bearer ' + T4_KEY };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const payload = body === undefined || method === 'GET' || method === 'DELETE'
+      ? undefined
+      : JSON.stringify({ ...body, owner_openid: ownerId });
+    const res = await fetch(url, { method, headers, body: payload, signal: ctrl.signal });
+    const status = res.status;
+    const ok = status >= 200 && status < 300;
+    return { status, ok, json: async () => { try { return await res.json(); } catch { return {}; } } };
   } finally {
     clearTimeout(timer);
   }
@@ -244,29 +276,38 @@ async function lakeUpsert(collection, id, doc, ownerId) {
   return r;
 }
 
-/** 列出某集合全部（管理后台用，依赖数据湖 list 端点；内存模式直接本地枚举） */
+/** 列出某集合全部（管理后台用；统一把行规整为 doc 对象返回） */
 async function lakeList(collection, ownerId) {
   if (MEMORY_MODE) {
     const items = [];
     for (const [k, v] of mem) if (k.startsWith(`${collection}/`) && v.doc) items.push(v.doc);
     return items;
   }
-  const path = `/t/${encodeURIComponent(TENANT)}/c/${encodeURIComponent(collection)}`;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetch(`${LAKE}${path}`, {
-      method: 'GET',
-      headers: { 'x-sync-key': INTERNAL_KEY, 'x-user-id': ownerId || 'admin' },
-    });
-    if (!res.ok) return [];
-    const data = await res.json().catch(() => ({}));
-    return Array.isArray(data) ? data : (data.items || data.rows || data.list || []);
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
+  let rows = [];
+  if (T4_MODE) {
+    const r = await lake('GET', collection, null, ownerId || 'admin');
+    if (r.ok) {
+      const data = await r.json().catch(() => ({}));
+      rows = data.rows || data.items || data.list || (Array.isArray(data) ? data : []);
+    }
+  } else {
+    const path = `/t/${encodeURIComponent(TENANT)}/c/${encodeURIComponent(collection)}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    try {
+      const res = await fetch(`${LAKE}${path}`, {
+        method: 'GET',
+        headers: { 'x-sync-key': INTERNAL_KEY, 'x-user-id': ownerId || 'admin' },
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        rows = Array.isArray(data) ? data : (data.items || data.rows || data.list || []);
+      }
+    } catch { /* ignore */ } finally {
+      clearTimeout(timer);
+    }
   }
+  return rows.map((x) => (x && x.doc ? x.doc : x));
 }
 
 // ---------- 账号业务 ----------
