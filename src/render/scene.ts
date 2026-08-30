@@ -1,6 +1,28 @@
 import * as THREE from 'three';
 import { getPalette, getScheme } from './palette';
 
+/**
+ * 从天空基色派生渐变用的上/下两色：
+ *  - 下方更亮：往白色提亮（高明度）
+ *  - 上方更蓝：压低红、抬升蓝，色相偏冷
+ * 两份都在线性空间里算（ColorManagement 下 Color 内部即线性），
+ * 最后在着色器里统一转回 sRGB，保证和其它材质观感一致。
+ */
+function skyBottom(hex: number, night: boolean): THREE.Color {
+  const c = new THREE.Color(hex);
+  c.lerp(new THREE.Color(0xffffff), night ? 0.14 : 0.32);
+  return c;
+}
+function skyTop(hex: number, night: boolean): THREE.Color {
+  const c = new THREE.Color(hex);
+  const r = Math.max(0, c.r * 0.74);
+  const g = c.g * 0.9;
+  const b = Math.min(1, c.b * 1.14 + 0.05);
+  c.setRGB(r, g, b);
+  if (night) c.lerp(new THREE.Color(0x20284a), 0.35);
+  return c;
+}
+
 const ISO_PITCH = Math.atan(1 / Math.SQRT2); // 真等距 35.26°
 const MIN_ZOOM = 0.55;
 const MAX_ZOOM = 2.6;
@@ -69,6 +91,9 @@ export class SceneView {
   private showcase = false;
   /** 岛屿内容的世界包围盒（由外部设置，用于「最佳视图」动态贴合） */
   private fitBox: THREE.Box3 | null = null;
+  /** 渐变天穹：大球壳 + 自定义着色器，下亮上蓝、带轻微倾斜与顶部柔光 */
+  private sky!: THREE.Mesh;
+  private skyMat!: THREE.ShaderMaterial;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -78,6 +103,56 @@ export class SceneView {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 300);
+    // 渐变天穹：大球壳包住整个场景，BackSide 朝内，不参与深度/光照/雾
+    this.skyMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        uBottom: { value: new THREE.Color(0xffffff) },
+        uTop: { value: new THREE.Color(0x88bbff) },
+        uTilt: { value: new THREE.Vector3(0.35, 0, 1).normalize() },
+        uTiltAmt: { value: 0.18 },
+        uGlow: { value: new THREE.Color(0xffffff) },
+        uGlowDir: { value: new THREE.Vector3(0.15, 0.9, 0.25).normalize() },
+        uGlowAmt: { value: 0.35 },
+      },
+      vertexShader: /* glsl */ `
+        varying vec3 vDir;
+        void main() {
+          vDir = position;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform vec3 uBottom;
+        uniform vec3 uTop;
+        uniform vec3 uTilt;
+        uniform float uTiltAmt;
+        uniform vec3 uGlow;
+        uniform vec3 uGlowDir;
+        uniform float uGlowAmt;
+        varying vec3 vDir;
+        void main() {
+          vec3 d = normalize(vDir);
+          // 上蓝下亮的竖直渐变，叠加一点水平倾斜让等色线略斜
+          float grad = d.y + uTiltAmt * dot(d.xz, normalize(uTilt.xz + vec2(1e-5)));
+          float t = clamp((grad + 1.0) * 0.5, 0.0, 1.0);
+          vec3 col = mix(uBottom, uTop, smoothstep(0.0, 1.0, t));
+          // 顶部柔光扩散（圆形晕开感）
+          float g = pow(max(dot(d, normalize(uGlowDir)), 0.0), 3.0);
+          col = mix(col, uGlow, g * uGlowAmt);
+          // 线性 → sRGB，与场景其它材质观感一致
+          col = pow(col, vec3(1.0 / 2.2));
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `,
+    });
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(200, 32, 16), this.skyMat);
+    this.sky.frustumCulled = false;
+    this.sky.renderOrder = -1;
+    this.scene.add(this.sky);
+
     // 天空与雾色随色系走，由 setSky 统一设置
     this.scene.fog = new THREE.Fog(0xffffff, 42, 96);
     this.setSky(false);
@@ -89,15 +164,26 @@ export class SceneView {
   }
 
   /**
-   * 天空与雾色：白天取 palette.sky、夜间取 palette.skyNight。
-   * 切色系（applyScheme）和昼夜切换都走这里，避免各处硬编码颜色。
+   * 天空与雾色：白天取 palette.sky、夜间取 palette.skyNight，
+   * 并派生渐变天穹的上下两色与顶部柔光。切色系（applyScheme）和
+   * 昼夜切换都走这里，避免各处硬编码颜色。
    */
   setSky(night: boolean): void {
     this.isNight = night;
     const p = getPalette();
-    const c = night ? p.skyNight : p.sky;
-    this.scene.background = new THREE.Color(c);
-    if (this.scene.fog) (this.scene.fog as THREE.Fog).color.set(c);
+    const hex = night ? p.skyNight : p.sky;
+    const bottom = skyBottom(hex, night);
+    const top = skyTop(hex, night);
+    const glow = skyBottom(hex, night).lerp(new THREE.Color(0xffffff), night ? 0.1 : 0.3);
+    if (this.skyMat) {
+      this.skyMat.uniforms.uBottom.value.copy(bottom);
+      this.skyMat.uniforms.uTop.value.copy(top);
+      this.skyMat.uniforms.uGlow.value.copy(glow);
+    }
+    // 雾色取下方亮色，远处地形自然融进地平线天空
+    if (this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(bottom);
+    // 纯色兜底（天穹意外未覆盖时）
+    this.scene.background = bottom.clone();
   }
 
   private setupLights(): void {

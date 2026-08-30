@@ -100,25 +100,26 @@ const CREAM: Palette = {
   path: 0xf5ecd2,
 };
 
-// 果冻糖果：饱和跳脱、活泼，光照略强让颜色更鲜亮
+// 果冻糖果：霓虹级四原色（亮黄/亮红/亮蓝/亮绿），小朋友高辨识度，最激进
+// 草地绿保留；其余颜色统一提亮
 const JELLY: Palette = {
-  sky: 0xa6e3ff,
-  skyDusk: 0xffb0c4,
-  skyNight: 0x6f7ad0,
-  grass: 0xa6f06a,
-  grassDark: 0x8fe058,
-  soil: 0xf8d98f,
-  soilDark: 0xe3c06f,
-  tilled: 0xd8a866,
-  rock: 0xdae4ee,
-  rockDark: 0xbcc8d8,
-  trunk: 0xd49a64,
-  leafGreen: 0x9cf07a,
-  leafDeep: 0x7be05f,
-  leafLight: 0xb6f29a,
-  water: 0x7fe6ff,
+  sky: 0xc8f5ff,
+  skyDusk: 0xff9ecf,
+  skyNight: 0x6a78e0,
+  grass: 0x8ef05a,
+  grassDark: 0x6fe03f,
+  soil: 0xffe9a8,
+  soilDark: 0xf5cf75,
+  tilled: 0xf7bd5a,
+  rock: 0xe8f2fb,
+  rockDark: 0xc8d8e8,
+  trunk: 0xf0b070,
+  leafGreen: 0x8ef05a,
+  leafDeep: 0x63d833,
+  leafLight: 0xc2f588,
+  water: 0x4addff,
   cloud: 0xffffff,
-  path: 0xf4e6c6,
+  path: 0xfff0c0,
 };
 
 // 晨雾清新：极明度、弱对比，清晨通透感（光照最弱，避免洗白）
@@ -167,15 +168,25 @@ const HOUSES_MIST = HOUSE_BASE.map((h) => ({
   roof: mix(h.roof, 0xffffff, 0.3),
   accent: mix(h.accent, 0xffffff, 0.35),
 }));
-// 果冻系本身已够鲜艳，住宅直接复用基础色
-const HOUSES_JELLY = HOUSE_BASE;
+// 果冻系：屋顶用高明度浅亮色（明亮不刺眼），墙体保留鲜活色
+const HOUSES_JELLY: HousePalette[] = [
+  { body: 0xfff0a0, roof: 0xffe85c, accent: 0x35e0ff }, // 亮黄屋顶 + 亮蓝点缀
+  { body: 0xffc2a8, roof: 0xff7a7a, accent: 0xfff04d }, // 亮红屋顶
+  { body: 0xb6d4ff, roof: 0x6aa6ff, accent: 0x9affd6 }, // 亮蓝屋顶
+  { body: 0xb0f0a0, roof: 0x86f070, accent: 0xfff04d }, // 亮绿屋顶
+  { body: 0xffc0e0, roof: 0xff8ecb, accent: 0xfff04d }, // 亮粉屋顶
+  { body: 0xd8c0ff, roof: 0xc19bf0, accent: 0x35e0ff }, // 亮紫屋顶
+  { body: 0xffe0a0, roof: 0xffb45c, accent: 0x35e0ff }, // 亮橙屋顶
+  { body: 0xa0f0e0, roof: 0x6fe6dc, accent: 0xfff04d }, // 亮青屋顶
+];
 
 // ---------- 居民衣服色（同样从基础色派生） ----------
 
 const SHIRTS_BASE = [0xff7a5c, 0x4f9ddb, 0x6cc24a, 0xffc233, 0xb08ae0, 0xff9a5c];
 const SHIRTS_CREAM = SHIRTS_BASE.map((c) => mix(c, 0xffffff, 0.25));
 const SHIRTS_MIST = SHIRTS_BASE.map((c) => mix(c, 0xffffff, 0.4));
-const SHIRTS_JELLY = SHIRTS_BASE;
+// 果冻系居民：亮黄·亮红·亮蓝·亮绿四原色为主，再加亮粉/亮橙补多样性
+const SHIRTS_JELLY = [0xffe600, 0xff2e2e, 0x2e7bff, 0x35e035, 0xff3ea8, 0xff8a00];
 
 export const SCHEMES: Record<string, Scheme> = {
   macaron: {
@@ -197,7 +208,7 @@ export const SCHEMES: Record<string, Scheme> = {
   jelly: {
     id: 'jelly',
     name: '果冻糖果',
-    light: { hemi: 1.0, sun: 1.05, fill: 0.42 },
+    light: { hemi: 1.12, sun: 1.3, fill: 0.5 },
     houses: HOUSES_JELLY,
     shirts: SHIRTS_JELLY,
     palette: JELLY,
