@@ -291,7 +291,7 @@ function signT2Jwt(sub, ttl = 3600) {
     tid: 'cloudlet',
     scp: ['user:read', 'user:write'],
     iss: 'gateway',
-    aud: 'your-data-lake.example.com',
+    aud: process.env.GATEWAY_AUD || 'your-data-lake.example.com',
     iat: now,
     exp: now + ttl,
   };
