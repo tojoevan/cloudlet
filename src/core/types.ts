@@ -52,6 +52,8 @@ export interface Settings {
   radioUrl: string;
   volume: number;
   powerSave: boolean;
+  /** 画质档位：low=省电关阴影 / standard=默认 / high=2048 阴影（桌面强机） */
+  quality: 'low' | 'standard' | 'high';
   /**
    * 云同步开关，默认关闭。
    * 只跑 npm run dev 时后端并不存在，自动同步只会让 console 被 500 刷屏。

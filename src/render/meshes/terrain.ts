@@ -251,9 +251,11 @@ export function makeCloud(seed: number): THREE.Group {
     const r = range(rng, 0.5, 1.1);
     const puff = new THREE.Mesh(
       jitter(new THREE.IcosahedronGeometry(r, 0), r * 0.2),
-      new THREE.MeshLambertMaterial({
+      new THREE.MeshStandardMaterial({
         color: PALETTE.cloud,
         flatShading: true,
+        roughness: 0.92,
+        metalness: 0,
         transparent: true,
         opacity: 0.96,
         // 白色自发光提亮背光面：Lambert 下球体侧面只吃到半天空光，

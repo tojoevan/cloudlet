@@ -27,7 +27,7 @@ export function createInitialState(deviceId: string): GameState {
     inventory: {},
     orders: [],
     stats: { harvests: 0, ordersDone: 0, playSeconds: 0, bestCombo: 0, focusSessions: 0, focusMinutes: 0 },
-    settings: { channel: 'citypop', radioUrl: '', volume: 0.6, powerSave: false, cloudSync: false },
+    settings: { channel: 'citypop', radioUrl: '', volume: 0.6, powerSave: false, quality: 'standard', cloudSync: false },
     feverUntil: 0,
     combo: 0,
     comboUntil: 0,

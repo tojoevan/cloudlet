@@ -196,6 +196,10 @@ function openSettings(): void {
       state.settings.powerSave = on;
       view.setPowerSave(on);
     },
+    onQuality: (q) => {
+      state.settings.quality = q;
+      view.setQuality(q);
+    },
     onRotate: () => view.rotateBy(Math.PI / 2),
     onExport: () => exportCode(state),
     onImport: (code) => {
@@ -751,6 +755,7 @@ world.sync(state, Date.now(), lowSpecInit);
 world.applyTimeOfDay(isNight());
 checkAchievements(state);
 dirty = false;
+view.setQuality(state.settings.quality);
 view.setPowerSave(state.settings.powerSave);
 view.resize();
 requestAnimationFrame(frame);

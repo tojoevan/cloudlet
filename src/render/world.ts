@@ -74,7 +74,7 @@ export class World {
   private clouds: THREE.Group[] = [];
   private hoverRing: THREE.Mesh;
   private ripeRings: THREE.Mesh[] = [];
-  private windowLights: THREE.MeshLambertMaterial[] = [];
+  private windowLights: THREE.MeshStandardMaterial[] = [];
   private bob = 0;
   private pond: THREE.Group | null = null;
   private agents = new Agents();

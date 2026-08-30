@@ -76,9 +76,17 @@ export function migrate(raw: any): GameState {
 
 /** 补齐后续版本新增的设置项，老存档不至于因缺字段而行为异常 */
 function normalize(s: GameState): GameState {
-  s.settings ??= { channel: 'citypop', radioUrl: '', volume: 0.6, powerSave: false, cloudSync: false };
+  s.settings ??= {
+    channel: 'citypop',
+    radioUrl: '',
+    volume: 0.6,
+    powerSave: false,
+    quality: 'standard',
+    cloudSync: false,
+  };
   s.settings.cloudSync ??= false;
   s.settings.powerSave ??= false;
+  s.settings.quality ??= 'standard';
   s.settings.channel ??= 'citypop';
   s.settings.volume ??= 0.6;
   return s;

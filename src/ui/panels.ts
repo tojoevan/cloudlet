@@ -301,6 +301,7 @@ export interface SettingsHandlers {
   onRadio: (url: string) => void;
   onVolume: (v: number) => void;
   onPowerSave: (on: boolean) => void;
+  onQuality: (q: Settings['quality']) => void;
   onRotate: () => void;
   onExport: () => string;
   onImport: (code: string) => void;
@@ -419,6 +420,27 @@ export function openSettingsPanel(
   vol.addEventListener('input', () => h.onVolume(Number(vol.value) / 100));
   volField.appendChild(vol);
   body.appendChild(volField);
+
+  // 画质：省电 / 标准 / 高。默认「标准」，移动端可切省电，桌面强机可开「高」。
+  const qField = el('div', 'field');
+  qField.appendChild(el('label', undefined, '画质'));
+  const qSeg = el('div', 'seg');
+  const QLABELS: Record<Settings['quality'], string> = {
+    low: '省电',
+    standard: '标准',
+    high: '高',
+  };
+  (['low', 'standard', 'high'] as Settings['quality'][]).forEach((q) => {
+    const b = el('button', `btn sm${state.settings.quality === q ? ' on' : ''}`, QLABELS[q]);
+    b.addEventListener('click', () => {
+      qSeg.querySelectorAll('.btn').forEach((x) => x.classList.remove('on'));
+      b.classList.add('on');
+      h.onQuality(q);
+    });
+    qSeg.appendChild(b);
+  });
+  qField.appendChild(qSeg);
+  body.appendChild(qField);
 
   const row = el('div', 'row');
   const ps = el('button', 'btn ghost', state.settings.powerSave ? '省电模式：开' : '省电模式：关');

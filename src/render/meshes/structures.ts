@@ -10,7 +10,7 @@ import { makeTree } from './terrain';
 export interface StructureMesh {
   group: THREE.Group;
   /** 夜间会亮的窗户材质，交给昼夜系统 */
-  lights: THREE.MeshLambertMaterial[];
+  lights: THREE.MeshStandardMaterial[];
   /** 烟囱顶（局部坐标）。只有工厂有，生产气泡要从这儿冒 */
   chimneyTop?: THREE.Vector3;
 }
@@ -56,7 +56,7 @@ export function makeHouse(
   const p =
     palette ?? HOUSE_PALETTES[Math.floor(rng() * HOUSE_PALETTES.length)] ?? { body: PALETTE.cloud, roof: 0xe07a5f, accent: PALETTE.water };
   const g = new THREE.Group();
-  const lights: THREE.MeshLambertMaterial[] = [];
+  const lights: THREE.MeshStandardMaterial[] = [];
 
   const w = range(rng, 1.0, 1.35);
   const d = range(rng, 1.0, 1.3);
@@ -108,7 +108,7 @@ export function makeFactory(type: FactoryType, seed: number): StructureMesh {
   const rng = mulberry32(seed);
   const def = FACTORIES[type];
   const g = new THREE.Group();
-  const lights: THREE.MeshLambertMaterial[] = [];
+  const lights: THREE.MeshStandardMaterial[] = [];
 
   const w = 1.5;
   const d = 1.4;
@@ -223,7 +223,7 @@ function decorateRanch(g: THREE.Group, w: number, d: number): void {
 export function makeFountain(seed: number): StructureMesh {
   const rng = mulberry32(seed);
   const g = new THREE.Group();
-  const lights: THREE.MeshLambertMaterial[] = [];
+  const lights: THREE.MeshStandardMaterial[] = [];
 
   const base = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.7, 0.22, 10), mat(0xe8f1f5));
   base.position.y = 0.11;

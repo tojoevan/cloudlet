@@ -52,6 +52,8 @@ export class SceneView {
   /** 键盘旋转的目标角度，靠插值趋近，转起来才不会瞬跳 */
   private targetYaw = Math.PI * 0.25;
   private zoom = 1;
+  private sun!: THREE.DirectionalLight;
+  private quality: 'low' | 'standard' | 'high' = 'standard';
 
   private drag: { x: number; y: number; mode: 'pan' | 'orbit' } | null = null;
   /** 双指状态：距离用于捏合，中点位移用于横转纵缩 */
@@ -83,13 +85,13 @@ export class SceneView {
   }
 
   private setupLights(): void {
-    // 数值偏大是故意的：Lambert 材质会乘上光照系数，
-    // 按「看起来舒服」反推的强度就是这么高
-    // 下半球的 groundColor 决定背光面亮度，给足才不会死黑
-    const hemi = new THREE.HemisphereLight(0xe8f6ff, 0xd2f0c4, 1.0);
+    // 换成 MeshStandardMaterial 后不再有「乘暗系数」的副作用，
+    // 故整体强度比原先 Lambert 时代调低，避免过曝。
+    // 下半球的 groundColor 决定背光面亮度，给足才不会死黑。
+    const hemi = new THREE.HemisphereLight(0xe8f6ff, 0xd2f0c4, 0.85);
     this.scene.add(hemi);
 
-    const sun = new THREE.DirectionalLight(0xfff8ec, 1.45);
+    const sun = new THREE.DirectionalLight(0xfff8ec, 1.12);
     sun.position.set(9, 16, 7);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
@@ -103,9 +105,10 @@ export class SceneView {
     sun.shadow.bias = -0.0012;
     this.scene.add(sun);
     this.scene.add(sun.target);
+    this.sun = sun;
 
     // 补光压一点阴影，避免背光面死黑
-    const fill = new THREE.DirectionalLight(0xdcefff, 0.55);
+    const fill = new THREE.DirectionalLight(0xdcefff, 0.4);
     fill.position.set(-8, 6, -6);
     this.scene.add(fill);
 
@@ -421,10 +424,41 @@ export class SceneView {
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * 画质分档：
+   * - low      ：省电，像素比 1、关阴影（移动端/弱机）
+   * - standard ：默认，像素比按设备、1024 柔和阴影
+   * - high     ：2048 阴影（桌面高质量，配合后续后期效果）
+   * 改变阴影贴图尺寸后要 dispose 旧 shadow map，否则不会重建。
+   */
+  setQuality(q: 'low' | 'standard' | 'high'): void {
+    this.quality = q;
+    const dpr = Math.min(window.devicePixelRatio, 2);
+    if (q === 'low') {
+      this.renderer.setPixelRatio(1);
+      this.renderer.shadowMap.enabled = false;
+      this.sun.castShadow = false;
+      return;
+    }
+    this.renderer.setPixelRatio(dpr);
+    this.renderer.shadowMap.enabled = true;
+    this.sun.castShadow = true;
+    const size = q === 'high' ? 2048 : 1024;
+    if (this.sun.shadow.mapSize.x !== size) {
+      this.sun.shadow.mapSize.set(size, size);
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null;
+    }
+  }
+
+  get qualityLevel(): 'low' | 'standard' | 'high' {
+    return this.quality;
+  }
+
+  /** 旧接口：省电模式映射到 low 画质 */
   setPowerSave(on: boolean): void {
     this.powerSave = on;
-    this.renderer.setPixelRatio(on ? 1 : Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = !on;
+    this.setQuality(on ? 'low' : 'standard');
   }
 
   get isPowerSave(): boolean {
