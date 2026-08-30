@@ -158,10 +158,41 @@ export function openBuildPanel(
     onBuild: (t: BuildingType) => void;
     onBuildFactory: (t: FactoryType) => void;
     onUpgrade: (t: BuildingType) => void;
+    onSwitchIsland: (id: string) => void;
+  onSeedTest: () => void;
   },
 ): void {
   const body = el('div');
   const pop = populationOf(state);
+
+  // 岛屿切换：两座独立岛，各有自己的建筑/农田/工厂
+  body.appendChild(el('p', 'hint', '岛屿'));
+  const islRow = el('div', 'row');
+  for (const isl of state.islands) {
+    const b = el(
+      'button',
+      `btn sm${isl.id === state.activeIsland ? ' on' : ''}`.trim(),
+      isl.name,
+    );
+    b.addEventListener('click', () => {
+      ctx.onSwitchIsland(isl.id);
+      closeModal();
+    });
+    islRow.appendChild(b);
+  }
+  body.appendChild(islRow);
+
+  // 方岛测试便捷入口：清空并随机重铺一层内容，方便看运行效果
+  if (state.activeIsland === 'square') {
+    const seedBtn = el('button', 'btn sm ghost', '随机填充（测试）');
+    seedBtn.addEventListener('click', () => {
+      ctx.onSeedTest();
+      closeModal();
+    });
+    const seedRow = el('div', 'row');
+    seedRow.appendChild(seedBtn);
+    body.appendChild(seedRow);
+  }
 
   body.appendChild(el('p', 'hint', '社区建筑'));
   const grid = el('div', 'grid');
@@ -191,8 +222,10 @@ export function openBuildPanel(
   body.appendChild(grid);
 
   // 升级已有建筑：就地升等级，人口/繁荣放大但不新增占地，比新建更省空间
-  const upgradable = BUILDING_ORDER.filter((t) =>
-    state.buildings.some((b) => b.type === t && (b.level ?? 1) < BUILDING_MAX_LEVEL),
+  const upgradable = BUILDING_ORDER.filter(
+    (t) =>
+      t !== 'road' &&
+      state.buildings.some((b) => b.type === t && (b.level ?? 1) < BUILDING_MAX_LEVEL),
   );
   if (upgradable.length > 0) {
     body.appendChild(el('p', 'hint', '升级建筑（更省空间）'));
@@ -209,7 +242,7 @@ export function openBuildPanel(
         card({
           color: def.accent,
           name: `${def.name} Lv${lv}→${lv + 1}`,
-          meta: `${fmt(cost)} 金 · 不占新地`,
+          meta: `${fmt(cost)} 金 · 升为 ${lv + 1} 层小屋`,
           disabled: state.coins < cost,
           onClick: () => {
             ctx.onUpgrade(t);
@@ -341,9 +374,13 @@ export interface SettingsHandlers {
   onQuality: (q: Settings['quality']) => void;
   onColorScheme: (id: string) => void;
   onRotate: () => void;
+  /** 性能监控浮层开关 */
+  onTogglePerf: (on: boolean) => void;
   onExport: () => string;
   onImport: (code: string) => void;
   onSync: () => void;
+  /** 清空本地存档并刷新页面，回到初始小岛（云端若开启会重新拉取） */
+  onReset: () => void;
   /** 返回 true 表示成功（main 会重建面板），返回 string 表示错误信息（面板内联展示） */
   onLogin: (username: string, password: string) => void | Promise<boolean | string | undefined>;
   onRegister: (username: string, password: string) => void | Promise<boolean | string | undefined>;
@@ -513,6 +550,17 @@ export function openSettingsPanel(
   row.append(ps, rot);
   body.appendChild(row);
 
+  // 性能监控：实时 FPS/帧时间/DrawCall 等，掉帧时高亮告警（持续关注性能异常）
+  const perfRow = el('div', 'row');
+  const perfBtn = el('button', 'btn ghost', state.settings.perfMonitor ? '性能监控：开' : '性能监控：关');
+  perfBtn.addEventListener('click', () => {
+    const next = !state.settings.perfMonitor;
+    perfBtn.textContent = next ? '性能监控：开' : '性能监控：关';
+    h.onTogglePerf(next);
+  });
+  perfRow.appendChild(perfBtn);
+  body.appendChild(perfRow);
+
   body.appendChild(el('p', 'hint', '存档'));
   const saveRow = el('div', 'row');
   const exp = el('button', 'btn sm', '导出存档码');
@@ -528,7 +576,13 @@ export function openSettingsPanel(
   });
   const sync = el('button', 'btn sm', '立即同步');
   sync.addEventListener('click', h.onSync);
-  saveRow.append(exp, imp, sync);
+  const reset = el('button', 'btn sm danger', '重置存档');
+  reset.addEventListener('click', () => {
+    if (window.confirm('确定清空本地存档、回到初始小岛吗？此操作不可撤销。')) {
+      h.onReset();
+    }
+  });
+  saveRow.append(exp, imp, sync, reset);
   body.appendChild(saveRow);
   body.appendChild(
     el(

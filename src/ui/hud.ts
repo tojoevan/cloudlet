@@ -89,17 +89,43 @@ export class HUD {
 
 export class OrderBoard {
   readonly el = el('div', 'orders');
+  private body = el('div', 'orders-body');
+  private head = el('button', 'orders-head');
   private sig = '';
+  private count = 0;
+  private collapsed = false;
+
+  constructor() {
+    // 移动端默认收起，避免一打开就盖住半屏
+    if (typeof window !== 'undefined' && window.innerWidth <= 480) this.collapsed = true;
+    this.head.addEventListener('click', () => this.toggle());
+    this.el.append(this.head, this.body);
+    this.applyCollapsed();
+  }
+
+  private toggle(): void {
+    this.collapsed = !this.collapsed;
+    this.applyCollapsed();
+  }
+
+  private applyCollapsed(): void {
+    this.el.classList.toggle('collapsed', this.collapsed);
+    this.head.textContent = `${this.collapsed ? '▸' : '▾'} 订单 ${this.count}`;
+  }
 
   update(state: GameState, onDeliver: (orderId: string) => void): void {
     // 只在订单集合或可交付状态变化时重建，避免每帧刷 DOM
     const sig = state.orders
       .map((o) => `${o.id}:${o.lines.every((l) => (state.inventory[l.id] ?? 0) >= l.count) ? 1 : 0}`)
       .join('|');
-    if (sig === this.sig) return;
+    this.count = state.orders.length;
+    if (sig === this.sig) {
+      this.head.textContent = `${this.collapsed ? '▸' : '▾'} 订单 ${this.count}`;
+      return;
+    }
     this.sig = sig;
 
-    this.el.replaceChildren();
+    this.body.replaceChildren();
     for (const order of state.orders) {
       const card = el('div', 'order');
       const lines = el('div', 'lines');
@@ -121,8 +147,9 @@ export class OrderBoard {
       foot.appendChild(btn);
 
       card.append(lines, foot);
-      this.el.appendChild(card);
+      this.body.appendChild(card);
     }
+    this.head.textContent = `${this.collapsed ? '▸' : '▾'} 订单 ${this.count}`;
   }
 }
 

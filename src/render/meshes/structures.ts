@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BUILDINGS } from '../../data/buildings';
 import { FACTORIES } from '../../data/factories';
+import { CELL } from '../../core/island';
 import type { BuildingType, FactoryType } from '../../core/types';
 import { mat, matOwn } from '../mat';
 import { getPalette, getHouses } from '../palette';
@@ -51,62 +52,68 @@ export function makeHouse(
 
   const w = range(rng, 1.0, 1.35);
   const d = range(rng, 1.0, 1.3);
-  const h = range(rng, 0.75, 1.05);
+  const floorH = range(rng, 0.72, 0.95);
+  // 等级 = 楼层数：1 层平房 → 2 层小屋 → 3 层。占地不变，只往高长，
+  // 所以「升级已有房屋」能在不扩张岛屿的前提下提供容量。
+  const floors = Math.max(1, Math.min(level, 3));
 
-  const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(p.body));
-  body.position.y = h / 2;
-  body.castShadow = true;
-  body.receiveShadow = true;
-  g.add(body);
-
-  const rh = range(rng, 0.45, 0.7);
-  const roof = roofOf(w, rh, d, p.roof);
-  roof.position.y = h + rh / 2;
-  g.add(roof);
-
-  // 门
-  const door = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.42, 0.06), mat(p.roof));
-  door.position.set(0, 0.21, d / 2 + 0.02);
-  g.add(door);
-
-  // 窗：单独材质，夜间点亮。抬到门楣之上（门顶固定在 y=0.42），
-  // 与门在 y 上彻底错开，避免两者正面共面（z=d/2+0.05）造成旋转时 z-fighting 闪烁。
+  // 夜间点亮的窗（整栋共用一个材质，便于昼夜系统统一控制）
   const winMat = matOwn(p.accent);
   lights.push(winMat);
-  const winY = Math.max(0.56, h * 0.62);
-  const winCount = rng() > 0.5 ? 2 : 1;
-  for (let i = 0; i < winCount; i++) {
-    const win = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.06), winMat);
-    win.position.set((i - (winCount - 1) / 2) * 0.42, winY, d / 2 + 0.02);
-    g.add(win);
-  }
-  const side = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.2, 0.22), winMat);
-  side.position.set(w / 2 + 0.02, winY, 0);
-  g.add(side);
 
-  // 烟囱
+  for (let f = 0; f < floors; f++) {
+    const baseY = f * floorH;
+
+    // 楼层主体
+    const body = new THREE.Mesh(new THREE.BoxGeometry(w, floorH, d), mat(p.body));
+    body.position.y = baseY + floorH / 2;
+    body.castShadow = true;
+    body.receiveShadow = true;
+    g.add(body);
+
+    // 楼层之间的小檐（底层不加），让多层更像小屋而非光秃秃的柱子
+    if (f > 0) {
+      const ledge = new THREE.Mesh(new THREE.BoxGeometry(w + 0.1, 0.07, d + 0.1), mat(p.roof));
+      ledge.position.y = baseY;
+      ledge.castShadow = true;
+      g.add(ledge);
+    }
+
+    // 窗：每层正面 + 侧面，抬到该层高度，避免与各层门共面 z-fighting
+    const winY = baseY + floorH * 0.62;
+    const winCount = rng() > 0.5 ? 2 : 1;
+    for (let i = 0; i < winCount; i++) {
+      const win = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.22, 0.06), winMat);
+      win.position.set((i - (winCount - 1) / 2) * 0.42, winY, d / 2 + 0.02);
+      g.add(win);
+    }
+    const side = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.22, 0.22), winMat);
+    side.position.set(w / 2 + 0.02, winY, 0);
+    g.add(side);
+
+    // 门只在底层
+    if (f === 0) {
+      const door = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.42, 0.06), mat(p.roof));
+      door.position.set(0, 0.21, d / 2 + 0.02);
+      g.add(door);
+    }
+  }
+
+  // 顶层四坡屋顶
+  const topY = floors * floorH;
+  const rh = range(rng, 0.45, 0.7);
+  const roof = roofOf(w, rh, d, p.roof);
+  roof.position.y = topY + rh / 2;
+  g.add(roof);
+
+  // 烟囱在顶层
   if (rng() > 0.4) {
     const ch = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.42, 0.16), mat(getPalette().rockDark));
-    ch.position.set(w * 0.26, h + rh * 0.55, -d * 0.2);
+    ch.position.set(w * 0.26, topY + rh * 0.55, -d * 0.2);
     g.add(ch);
   }
 
   g.userData.lights = lights;
-
-  // 升级外观：整体放大一点，并在外圈加装饰环表示等级（每升一级多一圈），
-  // 让「升级已有房屋」看得出来、又不新增占地。
-  const s = 1 + (level - 1) * 0.14;
-  g.scale.setScalar(s);
-  const ringMat = matOwn(p.accent);
-  for (let L = 2; L <= level; L++) {
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(Math.max(w, d) / 2 + 0.04, 0.045, 6, 18),
-      ringMat,
-    );
-    ring.rotation.x = Math.PI / 2;
-    ring.position.y = h * (0.3 + (L - 2) * 0.18);
-    g.add(ring);
-  }
   return { group: g, lights };
 }
 
@@ -272,8 +279,16 @@ export function makeParkBench(seed: number): THREE.Group {
   return g;
 }
 
-export function makeBuilding(type: BuildingType, seed: number, level = 1): StructureMesh {
+export function makeBuilding(
+  type: BuildingType,
+  seed: number,
+  level = 1,
+  w = 1,
+  h = 1,
+  fit = false,
+): StructureMesh {
   const def = BUILDINGS[type];
+  if (type === 'road') return makeRoad(seed);
   if (type === 'fountain') {
     const r = makeFountain(seed);
     r.group.scale.setScalar(1 + (level - 1) * 0.12);
@@ -302,6 +317,39 @@ export function makeBuilding(type: BuildingType, seed: number, level = 1): Struc
     return { group: g, lights: [] };
   }
   // 住宅走随机配色；咖啡馆、公园、喷泉各有固定形象，别打乱
-  if (type === 'house') return makeHouse(seed, undefined, level);
-  return makeHouse(seed, { body: def.body, roof: def.roof, accent: def.accent }, level);
+  let base: StructureMesh;
+  if (type === 'house') base = makeHouse(seed, undefined, level);
+  else base = makeHouse(seed, { body: def.body, roof: def.roof, accent: def.accent }, level);
+
+  // 方岛：把模型缩放到实际网格占地（w×h 格），避免压到邻格
+  if (fit) {
+    const BASE = 1.1;
+    const fw = (w * CELL * 0.82) / BASE;
+    const fd = (h * CELL * 0.82) / BASE;
+    base.group.scale.set(fw, 1, fd);
+  }
+  return base;
+}
+
+/** 道路：低于草面一线的石砖板，可 1×1 拼接成路网。居民会沿路散步。 */
+export function makeRoad(seed: number): StructureMesh {
+  const rng = mulberry32(seed);
+  const g = new THREE.Group();
+  const tile = new THREE.Mesh(
+    new THREE.BoxGeometry(CELL * 0.94, 0.08, CELL * 0.94),
+    mat(getPalette().rockDark),
+  );
+  tile.position.y = 0.05;
+  tile.receiveShadow = true;
+  g.add(tile);
+  // 中央一条浅色分道线，强化「路」的辨识
+  const line = new THREE.Mesh(
+    new THREE.BoxGeometry(CELL * 0.94, 0.02, 0.08),
+    mat(getPalette().cloud),
+  );
+  line.position.y = 0.1;
+  g.add(line);
+  g.userData.lights = [];
+  void rng;
+  return { group: g, lights: [] };
 }

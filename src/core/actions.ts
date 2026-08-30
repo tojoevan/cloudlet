@@ -1,9 +1,11 @@
-import { BUILDINGS } from '../data/buildings';
+import { BUILDINGS, BUILDING_FOOTPRINT } from '../data/buildings';
 import { CROPS } from '../data/crops';
 import { FACTORIES, RECIPE_BY_ID, recipesOf } from '../data/factories';
 import { recordBuilding, recordCrop, recordFactory } from './codex';
 import { addItem, HARVEST_YIELD, itemPrice, populationOf, roomFor, SELL_RATE } from './economy';
 import { FOCUS_MULT, isFocusing } from './focus';
+import { activeIslandMeta } from './island';
+import { canPlace, expandDir, firstFreeCell } from './grid';
 import type {
   BuildingType,
   CropId,
@@ -199,14 +201,30 @@ export function rushSlot(
   return { ok: true, data: { item: recipe.output } };
 }
 
-export function buildFactory(state: GameState, type: FactoryType, now: number): ActionResult {
+export function buildFactory(
+  state: GameState,
+  type: FactoryType,
+  now: number,
+  at?: { gx: number; gz: number },
+): ActionResult {
   const def = FACTORIES[type];
   if (def.unlockLevel > state.level) return fail(`需要 ${def.unlockLevel} 级`);
   if (state.factories.some((f) => f.type === type)) return fail('已经建过了');
   if (state.coins < def.buildCost) return fail('金币不够');
 
+  // 方岛要把 2×2 厂房落到网格上
+  let gx: number | undefined;
+  let gz: number | undefined;
+  if (activeIslandMeta(state).shape === 'square') {
+    const spot = at ?? firstFreeCell(state, 2, 2);
+    if (!spot) return fail('方岛已经放满了');
+    if (at && !canPlace(state, at.gx, at.gz, 2, 2)) return fail('这里放不下');
+    gx = spot.gx;
+    gz = spot.gz;
+  }
+
   state.coins -= def.buildCost;
-  state.factories.push({ type, slots: [{ recipe: null, readyAt: 0 }] });
+  state.factories.push({ type, slots: [{ recipe: null, readyAt: 0 }], gx, gz });
   recordFactory(state, type);
   void now;
   return { ok: true, data: undefined };
@@ -228,7 +246,12 @@ export function unlockSlot(state: GameState, factoryIndex: number, now: number):
   return { ok: true, data: { cost } };
 }
 
-export function build(state: GameState, type: BuildingType, now: number): ActionResult<{ cost: number }> {
+export function build(
+  state: GameState,
+  type: BuildingType,
+  now: number,
+  at?: { gx: number; gz: number; rot?: 0 | 1 | 2 | 3 },
+): ActionResult<{ cost: number }> {
   const def = BUILDINGS[type];
   if (def.unlockLevel > state.level) return fail(`需要 ${def.unlockLevel} 级`);
 
@@ -237,12 +260,30 @@ export function build(state: GameState, type: BuildingType, now: number): Action
   if (populationOf(state) < def.reqPop) return fail(`需要 ${def.reqPop} 人口`);
   if (state.coins < cost) return fail('金币不够');
 
+  const fp = BUILDING_FOOTPRINT[type];
+  let gx: number | undefined;
+  let gz: number | undefined;
+  let rot: 0 | 1 | 2 | 3 = 0;
+  if (activeIslandMeta(state).shape === 'square') {
+    let spot = at ?? firstFreeCell(state, fp.w, fp.h);
+    if (!spot) return fail('方岛已经放满了');
+    if (at && !canPlace(state, at.gx, at.gz, fp.w, fp.h)) return fail('这里放不下');
+    gx = spot.gx;
+    gz = spot.gz;
+    rot = at?.rot ?? 0;
+  }
+
   state.coins -= cost;
   state.buildings.push({
     id: `b_${now.toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
     type,
     seed: Math.floor(Math.random() * 1e9),
     level: 1,
+    gx,
+    gz,
+    w: fp.w,
+    h: fp.h,
+    rot,
   });
   recordBuilding(state, type);
   return { ok: true, data: { cost } };
@@ -256,15 +297,35 @@ export function upgradeCost(state: GameState, id: string): number {
   return Math.floor(buildCostOf(b.type, owned) * 0.6);
 }
 
-/** 升级一栋已有建筑：等级 +1，人口/繁荣随之放大，但不新增占地，省空间。 */
+/**
+ * 升级一栋已有建筑：
+ *  - 住宅：先扩占地（1×1 → 2×1，扩不动则尝试 1×2），扩完再逐层加高（最多 3 层）。
+ *    这样「升级」同时提供「更大 footprint」与「更多楼层」两种容量，且都不新增岛屿占地。
+ *  - 其他点缀建筑：直接升层（缩放/装饰），占地固定。
+ */
 export function upgradeBuilding(
   state: GameState,
   id: string,
   now: number,
-): ActionResult<{ level: number; cost: number }> {
+): ActionResult<{ level: number; cost: number; expanded?: boolean }> {
   const b = state.buildings.find((x) => x.id === id);
   if (!b) return fail('建筑不存在');
   const level = b.level ?? 1;
+
+  // 住宅且仍是 1×1：优先扩建占地
+  if (b.type === 'house' && (b.w ?? 1) * (b.h ?? 1) === 1 && b.gx != null && b.gz != null) {
+    const dir = expandDir(state, b.gx, b.gz, id);
+    if (dir) {
+      const cost = Math.floor(upgradeCost(state, id) * 0.8);
+      if (state.coins < cost) return fail('金币不够');
+      state.coins -= cost;
+      b.w = dir.w;
+      b.h = dir.h;
+      return { ok: true, data: { level, cost, expanded: true } };
+    }
+    // 扩不动则继续尝试升层
+  }
+
   if (level >= BUILDING_MAX_LEVEL) return fail('已是最高级');
   const cost = upgradeCost(state, id);
   if (state.coins < cost) return fail('金币不够');

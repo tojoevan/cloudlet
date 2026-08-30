@@ -1,5 +1,6 @@
 import { SAVE_VERSION } from './economy';
 import { fillOrders } from './orders';
+import { ensureIslands, defaultIslands, ROUND_ID } from './island';
 import type { GameState } from './types';
 
 export const GRID_COLS = 4;
@@ -27,7 +28,7 @@ export function createInitialState(deviceId: string): GameState {
     inventory: {},
     orders: [],
     stats: { harvests: 0, ordersDone: 0, playSeconds: 0, bestCombo: 0, focusSessions: 0, focusMinutes: 0 },
-    settings: { channel: 'citypop', radioUrl: '', volume: 0.6, powerSave: false, quality: 'standard', colorScheme: 'macaron', cloudSync: false },
+    settings: { channel: 'citypop', radioUrl: '', volume: 0.6, powerSave: false, quality: 'standard', colorScheme: 'macaron', cloudSync: false, perfMonitor: true },
     feverUntil: 0,
     combo: 0,
     comboUntil: 0,
@@ -35,7 +36,11 @@ export function createInitialState(deviceId: string): GameState {
     focus: { until: 0, startedAt: 0, totalMs: 0, harvested: 0, planted: 0, produced: 0, placed: 0 },
     codex: { crops: [], products: [], buildings: [], factories: [] },
     achievements: [],
+    islands: defaultIslands(),
+    activeIsland: ROUND_ID,
+    islandData: {},
   };
   fillOrders(state, now);
+  ensureIslands(state);
   return state;
 }

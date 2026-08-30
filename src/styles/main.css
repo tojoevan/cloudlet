@@ -186,6 +186,35 @@ button {
   pointer-events: none;
 }
 
+/* 方岛放置模式的提示条：顶部居中，点它或按 Esc 取消 */
+.place-banner {
+  position: absolute;
+  top: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 16px;
+  background: rgba(43, 58, 85, 0.82);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 999px;
+  cursor: pointer;
+  user-select: none;
+  z-index: 60;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+.place-banner b {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--c-accent);
+  border: 1px solid var(--c-accent);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
 .chip .sub {
   font-size: 11px;
   color: var(--c-muted);
@@ -214,6 +243,39 @@ button {
   flex-direction: column;
   gap: 8px;
   transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+/* 可折叠订单面板：标题头点击收起成小药丸，避免遮挡 */
+.orders-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--c-panel);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+}
+
+.orders-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.orders.collapsed {
+  width: auto;
+}
+
+.orders.collapsed .orders-body {
+  display: none;
 }
 
 .order {
@@ -319,6 +381,56 @@ button {
   padding: 6px 10px;
   min-height: 30px;
   font-size: 12px;
+}
+
+.btn.danger {
+  background: #e0584f;
+  color: #fff;
+}
+.btn.danger:hover {
+  background: #c94a42;
+}
+
+/* ---------- 性能监控浮层 ---------- */
+.perf {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 50;
+  min-width: 138px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: rgba(20, 24, 34, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e8eef7;
+  font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none; /* 不挡操作 */
+  backdrop-filter: blur(4px);
+}
+.perf-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.perf-key {
+  opacity: 0.68;
+}
+.perf-val {
+  font-weight: 600;
+}
+/* 掉帧 / 卡顿尖刺：整块变红告警，配合 console.warn 便于持续关注 */
+.perf.warn {
+  background: rgba(170, 40, 40, 0.88);
+  border-color: rgba(255, 120, 120, 0.6);
+  color: #fff;
+  animation: perf-flash 1s ease-in-out infinite;
+}
+.perf.warn .perf-val {
+  color: #ffd9d9;
+}
+@keyframes perf-flash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 90, 90, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(255, 90, 90, 0.35); }
 }
 
 /* ---------- 底部操作栏 ---------- */
@@ -778,7 +890,20 @@ button {
 
 @media (max-width: 480px) {
   .orders {
-    width: 168px;
+    width: min(50vw, 210px);
+  }
+  /* 多张订单卡改为可滚动，不再纵向铺满盖住整屏 */
+  .orders-body {
+    max-height: calc(100vh - 210px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* 性能浮层移到左下，腾出右上给订单面板 */
+  .perf {
+    top: auto;
+    right: auto;
+    bottom: calc(62px + env(safe-area-inset-bottom, 0px));
+    left: 8px;
   }
   .order {
     padding: 8px 10px;

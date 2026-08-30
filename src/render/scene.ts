@@ -26,6 +26,20 @@ function skyTop(hex: number, night: boolean): THREE.Color {
 const ISO_PITCH = Math.atan(1 / Math.SQRT2); // 真等距 35.26°
 const MIN_ZOOM = 0.55;
 const MAX_ZOOM = 2.6;
+
+/** 每帧性能快照，由 render() 在绘制后填充，供主循环采样展示（性能监控浮层用） */
+export interface PerfSnapshot {
+  /** draw calls：每帧渲染调用次数 */
+  calls: number;
+  /** 三角面数 */
+  triangles: number;
+  /** 已上传 GPU 的几何体数量 */
+  geometries: number;
+  /** 已上传 GPU 的纹理数量 */
+  textures: number;
+  /** JS 堆占用字节（仅 Chromium 系可用，其余为 0） */
+  jsHeap: number;
+}
 /**
  * 「近景」判定阈值：缩放超过这个值算贴近小岛（能看清居民），
  * 此时居民才自动闲聊、也能点开说话；缩小拉远看全岛时居民只是小点，不说话。
@@ -79,6 +93,8 @@ export class SceneView {
   private fill!: THREE.DirectionalLight;
   private isNight = false;
   private quality: 'low' | 'standard' | 'high' = 'standard';
+  /** 最近一帧的性能快照（render 后刷新），主循环读取它做采样与告警 */
+  perf: PerfSnapshot = { calls: 0, triangles: 0, geometries: 0, textures: 0, jsHeap: 0 };
 
   private drag: { x: number; y: number; mode: 'pan' | 'orbit' } | null = null;
   /** 双指状态：距离用于捏合，中点位移用于横转纵缩 */
@@ -613,6 +629,16 @@ export class SceneView {
 
   render(): void {
     this.renderer.render(this.scene, this.camera);
+    // 绘制后立刻抓 renderer.info：autoReset 默认开启，统计的就是本帧数据
+    const info = this.renderer.info;
+    const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+    this.perf = {
+      calls: info.render.calls,
+      triangles: info.render.triangles,
+      geometries: info.memory.geometries,
+      textures: info.memory.textures,
+      jsHeap: mem?.usedJSHeapSize ?? 0,
+    };
   }
 }
 

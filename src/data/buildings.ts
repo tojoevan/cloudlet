@@ -42,9 +42,28 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     body: 0xeff7fa, roof: 0x5b97bd, accent: 0xbfe4ea,
     desc: '入夜会亮起灯',
   },
+  road: {
+    id: 'road', name: '道路', cost: 50, costGrowth: 1,
+    pop: 0, prosperity: 0, reqPop: 0, unlockLevel: 1,
+    body: 0xcdb89a, roof: 0xb59c7c, accent: 0xcdb89a,
+    desc: '把房屋连起来，居民沿路散步',
+  },
 };
 
-export const BUILDING_ORDER: BuildingType[] = ['house', 'cafe', 'park', 'fountain'];
+export const BUILDING_ORDER: BuildingType[] = ['house', 'cafe', 'park', 'fountain', 'road'];
+
+/** 方岛网格占地（单位：格）。住宅基础 1×1，可升级成 1×2 / 2×1；
+ *  咖啡馆/公园/喷泉为 2×2 的点缀型；道路 1×1 可拼接。 */
+export const BUILDING_FOOTPRINT: Record<BuildingType, { w: number; h: number }> = {
+  house: { w: 1, h: 1 },
+  cafe: { w: 2, h: 2 },
+  park: { w: 2, h: 2 },
+  fountain: { w: 2, h: 2 },
+  road: { w: 1, h: 1 },
+};
+
+/** 工厂在方岛上的占地恒为 2×2（生产型建筑） */
+export const FACTORY_FOOTPRINT = { w: 2, h: 2 };
 
 export interface IslandDef {
   id: string;

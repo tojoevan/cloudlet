@@ -1,5 +1,6 @@
 import { SAVE_VERSION } from './economy';
 import { createInitialState } from './state';
+import { ensureIslands } from './island';
 import type { GameState } from './types';
 
 const SAVE_KEY = 'cloudlet.save';
@@ -84,6 +85,7 @@ function normalize(s: GameState): GameState {
     quality: 'standard',
     colorScheme: 'macaron',
     cloudSync: false,
+    perfMonitor: true,
   };
   s.settings.cloudSync ??= false;
   s.settings.powerSave ??= false;
@@ -91,6 +93,7 @@ function normalize(s: GameState): GameState {
   s.settings.colorScheme ??= 'macaron';
   s.settings.channel ??= 'citypop';
   s.settings.volume ??= 0.6;
+  s.settings.perfMonitor ??= true;
   s.focus.placed ??= 0;
   // 老存档的建筑没有 level 字段，补成 1，避免升级逻辑读 undefined
   if (Array.isArray(s.buildings)) {
@@ -98,6 +101,7 @@ function normalize(s: GameState): GameState {
       if (typeof (b as { level?: number }).level !== 'number') (b as { level: number }).level = 1;
     }
   }
+  ensureIslands(s);
   return s;
 }
 

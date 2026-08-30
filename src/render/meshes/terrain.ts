@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mat, matOwn } from '../mat';
 import { ISLAND_RADIUS, getPalette } from '../palette';
+import { CELL, SQUARE_N } from '../../core/island';
 import { mulberry32, pick, range } from '../rng';
 
 /** 全部扰动共用一个种子：层与层的交界环才能算出相同偏移 */
@@ -113,6 +114,107 @@ export function makeIsland(seed = 20260829, radius = ISLAND_RADIUS): THREE.Group
   }
 
   return g;
+}
+
+/**
+ * 圆角正方形浮空岛：草皮顶面是带圆角的方框（ExtrudeGeometry），其下土层/岩层/底尖
+ * 逐级收窄，沿用圆岛的层叠语言。顶面还铺了一层淡淡的网格线，呼应「以农田为 1 格」的
+ * 规划感。half 取 SQUARE_N/2*CELL + 余量，让 13×13 的规划网格稳稳落在岛内。
+ */
+export function makeSquareIsland(seed = 20260829, half = 8.27, corner = 2.6): THREE.Group {
+  const rng = mulberry32(seed);
+  const g = new THREE.Group();
+  const topH = 0.7;
+  const soilH = 1.3;
+  const rockH = 2.2;
+  const tipH = 3.4;
+  const ySoil = -topH;
+  const yRock = ySoil - soilH;
+  const yTip = yRock - rockH;
+
+  const topShape = new THREE.Shape();
+  roundedRectPath(topShape, -half, -half, half * 2, half * 2, corner);
+  const top = new THREE.Mesh(
+    makeExtrudedRounded(topShape, topH, 0),
+    mat(getPalette().grass),
+  );
+  top.receiveShadow = true;
+  g.add(top);
+
+  // 土层：略小一圈的圆角方框
+  const soilShape = new THREE.Shape();
+  const sh = half * 0.9;
+  roundedRectPath(soilShape, -sh, -sh, sh * 2, sh * 2, corner * 0.85);
+  const soil = new THREE.Mesh(
+    makeExtrudedRounded(soilShape, soilH, ySoil - soilH / 2),
+    mat(getPalette().soilDark),
+  );
+  g.add(soil);
+
+  // 岩层
+  const rockShape = new THREE.Shape();
+  const rh = half * 0.72;
+  roundedRectPath(rockShape, -rh, -rh, rh * 2, rh * 2, corner * 0.7);
+  const rock = new THREE.Mesh(
+    makeExtrudedRounded(rockShape, rockH, yRock - rockH / 2),
+    mat(getPalette().rock),
+  );
+  g.add(rock);
+
+  // 底尖：四面棱锥（4 段圆柱），顶半径对齐岩层底、向下收成一点——
+  // 与圆岛 CylinderGeometry(R*0.5,0,…) 同一套「上宽下收」语言，避免底裙外扩
+  // 在俯视角下被误读成「近小远大」。
+  const tip = new THREE.Mesh(
+    jitter(new THREE.CylinderGeometry(rh, 0, tipH, 4).rotateY(Math.PI / 4), 0.5),
+    mat(getPalette().rockDark),
+  );
+  tip.position.y = yTip - tipH / 2;
+  g.add(tip);
+
+  // 岛缘散布小岩块，呼应圆岛的碎岩感
+  for (let i = 0; i < 9; i++) {
+    const edge = half * range(rng, 0.82, 0.95);
+    const a = rng() * Math.PI * 2;
+    const s = range(rng, 0.16, 0.3);
+    const chunk = new THREE.Mesh(jitter(new THREE.IcosahedronGeometry(s, 0), s * 0.4), mat(getPalette().rock));
+    chunk.position.set(Math.cos(a) * edge, -range(rng, 0.1, 0.4), Math.sin(a) * edge);
+    chunk.rotation.set(rng() * 3, rng() * 3, rng() * 3);
+    g.add(chunk);
+  }
+
+  // 顶面淡网格线：呼应规划感。线落在每格边界，颜色比草皮略深。
+  const grid = makeGridLines(half, corner);
+  g.add(grid);
+
+  return g;
+}
+
+/** 把圆角方框挤出成厚度 d 的实体，顶面落在 centerY（向下延伸 d）。
+ * 与圆岛 CylinderGeometry(...).translate(0, y/2, 0) 同一套「顶面贴层交界」语义，
+ * 草皮顶面落在 y=0，与圆岛一致——否则整座方岛会悬浮 1.05 个单位，
+ * 建筑陷进草皮、网格线与草皮边错位，等距俯视下看着像「远边长」。 */
+function makeExtrudedRounded(shape: THREE.Shape, d: number, centerY: number): THREE.BufferGeometry {
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: d, bevelEnabled: false, steps: 1 });
+  geo.rotateX(-Math.PI / 2); // 挤出的厚度从 +Z 转到 +Y，方框平铺到 xz 平面
+  geo.translate(0, centerY - d, 0); // 顶面落在 centerY，向下延伸 d
+  return geo;
+}
+
+/** 顶面网格线：沿 x、z 各画 N+1 条，颜色取草皮的暗色，透明度压低，只在方岛出现 */
+function makeGridLines(_half: number, _corner: number): THREE.LineSegments {
+  const C = CELL; // 来自 core/island
+  const N = SQUARE_N;
+  const outer = (N / 2) * C; // 网格最外边界
+  const pts: number[] = [];
+  for (let i = 0; i <= N; i++) {
+    const p = -outer + i * C;
+    pts.push(-outer, 0.02, p, outer, 0.02, p); // 沿 z 的线
+    pts.push(p, 0.02, -outer, p, 0.02, outer); // 沿 x 的线
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  const matLines = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.06 });
+  return new THREE.LineSegments(geo, matLines);
 }
 
 export type TreeKind = 'pine' | 'broadleaf';

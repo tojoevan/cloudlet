@@ -30,15 +30,19 @@ import { addItem, itemName } from './core/economy';
 import { cancelFocus, focusProgress, isFocusing, settleFocus, startFocus } from './core/focus';
 import { autoFocusStep } from './core/autoplay';
 import { deliver } from './core/orders';
-import { exportCode, getDeviceId, importCode, loadLocal, saveLocal } from './core/save';
+import { clearLocal, exportCode, getDeviceId, importCode, loadLocal, saveLocal } from './core/save';
+import { canPlace } from './core/grid';
 import { advance, tick } from './core/simulation';
 import { createInitialState } from './core/state';
+import { switchIsland, SQUARE_ID } from './core/island';
+import { seedSquareTestLayout } from './core/seed';
 import type { BuildingType, CropId, FactoryType, GameState, ItemId } from './core/types';
 import { RECIPE_BY_ID } from './data/factories';
-import { BUILDINGS } from './data/buildings';
+import { BUILDINGS, BUILDING_FOOTPRINT } from './data/buildings';
 import { randomLine, randomFarmLine, randomLumberLine, randomRanchLine } from './data/lines';
 import { plotPosition, World } from './render/world';
 import { SceneView } from './render/scene';
+import type { PerfSnapshot } from './render/scene';
 import { setScheme, getSchemeId } from './render/palette';
 import { closeModal, el, floatAt, initUI, toast } from './ui/dom';
 import { ActionBar, HUD, OrderBoard } from './ui/hud';
@@ -60,14 +64,16 @@ const uiRoot = document.getElementById('ui') as HTMLElement;
 
 initUI(uiRoot);
 const view = new SceneView(canvas);
-const world = new World(view.scene);
-// 把岛屿包围盒交给镜头，进入专注/点击倒计时条时据此算出「岛屿最大显示不遮挡」的最佳缩放
-view.setFitBox(world.fitBox());
-const audio = new AudioManager();
 
 const deviceId = getDeviceId();
 let state = loadLocal() ?? createInitialState(deviceId);
 state.deviceId = deviceId;
+
+// 先有 state 再建 World，让首屏地形按当前激活岛（云上町/方舟町）正确形状渲染
+const world = new World(view.scene, state);
+// 把岛屿包围盒交给镜头，进入专注/点击倒计时条时据此算出「岛屿最大显示不遮挡」的最佳缩放
+view.setFitBox(world.fitBox());
+const audio = new AudioManager();
 
 // 应用存档里保存的色系：world 已在默认（马卡龙）下建好，
 // 若存档选了别的色系就整体重建一次；同时让光照/天空色跟上。
@@ -163,7 +169,14 @@ const bar = new ActionBar({
     markDirty();
     saveNow();
   },
-  onBuild: () => openBuildPanel(state, { onBuild: doBuild, onBuildFactory: doBuildFactory, onUpgrade: doUpgrade }),
+  onBuild: () =>
+    openBuildPanel(state, {
+      onBuild: doBuild,
+      onBuildFactory: doBuildFactory,
+      onUpgrade: doUpgrade,
+      onSwitchIsland: switchIslandTo,
+      onSeedTest: seedSquareTest,
+    }),
   onFocus: () =>
     openFocusPanel(state, Date.now(), {
       onStart: (minutes) => {
@@ -219,6 +232,12 @@ function openSettings(): void {
       view.applyScheme();
       world.rebuild(state, isNight());
     },
+    onTogglePerf: (on) => {
+      state.settings.perfMonitor = on;
+      applyPerfVisibility();
+      markDirty();
+      saveNow();
+    },
     onRotate: () => view.rotateBy(Math.PI / 2),
     onExport: () => exportCode(state),
     onImport: (code) => {
@@ -243,6 +262,11 @@ function openSettings(): void {
           saveLocal(state);
         }
       });
+    },
+    onReset: () => {
+      clearLocal();
+      // 云端若开启会在下次启动时重新拉取；本地直接回到初始小岛
+      window.location.reload();
     },
     onLogin: async (username, password) => {
       const r = await auth.login(username, password);
@@ -335,6 +359,12 @@ function doDeliver(orderId: string): void {
 }
 
 function doBuild(type: BuildingType): void {
+  // 方岛：进入点击落格的放置模式（圆岛仍旧地自动打包）
+  if (world.islandShape === 'square') {
+    const fp = BUILDING_FOOTPRINT[type];
+    beginPlacement(type, false, fp.w, fp.h);
+    return;
+  }
   const r = build(state, type, Date.now());
   if (!r.ok) {
     audio.play('error');
@@ -342,6 +372,40 @@ function doBuild(type: BuildingType): void {
   }
   audio.play('coin');
   toast(`${type === 'house' ? '小屋' : '建筑'}落成`);
+  markDirty();
+  saveNow();
+}
+
+function switchIslandTo(id: string): void {
+  // 切换岛屿前，若在放置模式则静默退出（不再弹回建造面板）
+  if (placing) endPlacement(false);
+  const changed = switchIsland(state, id);
+  if (!changed) return;
+  // 方岛首次进入且为空，随机铺一层测试内容，方便看运行效果
+  if (state.activeIsland === SQUARE_ID && state.buildings.length === 0 && state.factories.length === 0) {
+    seedSquareTestLayout(state);
+  }
+  // 整岛重建：圆岛/方岛地形与建筑布局都不同
+  world.rebuild(state, isNight());
+  const meta = state.islands.find((x) => x.id === id);
+  toast(`已切换到${meta?.name ?? '岛屿'}`);
+  markDirty();
+  saveNow();
+}
+
+/** 测试便捷：清空方岛现有布局并随机重铺一层内容（建筑/道路/工厂/作物）。 */
+function seedSquareTest(): void {
+  if (placing) endPlacement(false);
+  state.buildings = [];
+  state.factories = [];
+  for (const p of state.plots) {
+    p.crop = null;
+    p.plantedAt = 0;
+    p.readyAt = 0;
+  }
+  seedSquareTestLayout(state, Date.now());
+  world.rebuild(state, isNight());
+  toast('方舟町已随机重铺');
   markDirty();
   saveNow();
 }
@@ -357,7 +421,8 @@ function doUpgrade(type: BuildingType): void {
     return toast(r.reason);
   }
   audio.play('coin');
-  toast(`${BUILDINGS[type].name}升到 ${r.data.level} 级`);
+  const what = r.data.expanded ? '扩建了占地' : `升到 ${r.data.level} 级`;
+  toast(`${BUILDINGS[type].name}${what}`);
   // 升级后房子外形变了，重建对应模型
   world.refreshBuilding(target.id);
   markDirty();
@@ -365,6 +430,11 @@ function doUpgrade(type: BuildingType): void {
 }
 
 function doBuildFactory(type: FactoryType): void {
+  // 方岛：工厂是 2×2，也走点击落格
+  if (world.islandShape === 'square') {
+    beginPlacement(type, true, 2, 2);
+    return;
+  }
   const r = buildFactory(state, type, Date.now());
   if (!r.ok) {
     audio.play('error');
@@ -375,6 +445,84 @@ function doBuildFactory(type: FactoryType): void {
   markDirty();
   saveNow();
 }
+
+// ---------- 方岛放置模式 ----------
+/**
+ * 方岛建造走「点击落格」：点开建造面板选一种建筑/工厂后进入本模式，
+ * 半透明预览体跟随光标，绿=可放/红=不可放，点格子即落定（道路可连点铺一排）。
+ * 圆岛没有网格，仍用旧的自动打包。
+ */
+type Placing = { type: BuildingType | FactoryType; isFactory: boolean; w: number; h: number };
+let placing: Placing | null = null;
+
+const placeBanner = el('div', 'place-banner');
+placeBanner.style.display = 'none';
+placeBanner.innerHTML = '<span>放置中 · 点格子放下</span><b>Esc / 点此取消</b>';
+placeBanner.addEventListener('click', () => endPlacement(true));
+uiRoot.append(placeBanner);
+
+function beginPlacement(type: BuildingType | FactoryType, isFactory: boolean, w: number, h: number): void {
+  placing = { type, isFactory, w, h };
+  world.beginPlacement(type, isFactory, w, h);
+  closeModal();
+  placeBanner.style.display = '';
+}
+
+/** 退出放置模式。reopen=true 时重新打开建造面板，方便再选一种。 */
+function endPlacement(reopen: boolean): void {
+  if (!placing) return;
+  placing = null;
+  world.clearGhost();
+  placeBanner.style.display = 'none';
+  if (reopen) {
+    openBuildPanel(state, {
+      onBuild: doBuild,
+      onBuildFactory: doBuildFactory,
+      onUpgrade: doUpgrade,
+      onSwitchIsland: switchIslandTo,
+      onSeedTest: seedSquareTest,
+    });
+  }
+}
+
+/** 把预览体对齐到点击的格子（2×2 以光标格为中心锚定），并校验能否放下 */
+function ghostAt(cell: { gx: number; gz: number }): boolean {
+  if (!placing) return false;
+  const { w, h } = placing;
+  const gx = cell.gx - Math.floor((w - 1) / 2);
+  const gz = cell.gz - Math.floor((h - 1) / 2);
+  const ok = canPlace(state, gx, gz, w, h);
+  world.moveGhost(gx, gz, ok);
+  return ok;
+}
+
+function commitPlacement(cell: { gx: number; gz: number }): void {
+  if (!placing) return;
+  const { w, h } = placing;
+  const gx = cell.gx - Math.floor((w - 1) / 2);
+  const gz = cell.gz - Math.floor((h - 1) / 2);
+  if (!canPlace(state, gx, gz, w, h)) {
+    audio.play('error');
+    return toast('这里放不下');
+  }
+  const r = placing.isFactory
+    ? buildFactory(state, placing.type as FactoryType, Date.now(), { gx, gz })
+    : build(state, placing.type as BuildingType, Date.now(), { gx, gz, rot: 0 });
+  if (!r.ok) {
+    audio.play('error');
+    return toast(r.reason);
+  }
+  audio.play('coin');
+  const name =
+    placing.type === 'road' ? '道路' : placing.isFactory ? '工厂' : placing.type === 'house' ? '小屋' : '建筑';
+  toast(`${name}已放置`);
+  markDirty();
+  saveNow();
+  // 保持放置模式，方便连铺（尤其道路）；刷新一下落点合法性
+  world.moveGhost(gx, gz, true);
+}
+
+
 
 function doSell(id: ItemId, count: number): void {
   const r = sell(state, id, count);
@@ -480,8 +628,17 @@ canvas.addEventListener('pointerup', (e) => {
   downAt = null;
   if (moved > 10 || held > 600) return; // 当作拖拽或长按
 
+  // 放置模式：射线只打网格落格，点中即落定
+  if (placing) {
+    const gHit = view.pick(e.clientX, e.clientY, world.gridCells);
+    const cell = gHit ? (gHit.object.userData as { cell?: { gx: number; gz: number } }).cell : undefined;
+    if (cell) commitPlacement(cell);
+    return;
+  }
+
   const hit = view.pick(e.clientX, e.clientY, world.allPickables);
   if (!hit) return;
+
 
   // 居民优先：他们的碰撞体比地块高，射线本来就先命中
   const agentId = findFlag(hit.object, 'agentId');
@@ -513,6 +670,13 @@ canvas.addEventListener('pointerup', (e) => {
 
 canvas.addEventListener('pointermove', (e) => {
   if (e.pointerType !== 'mouse' || downAt) return;
+  // 放置模式：预览体跟随光标，实时显示可放/不可放
+  if (placing) {
+    const gHit = view.pick(e.clientX, e.clientY, world.gridCells);
+    const cell = gHit ? (gHit.object.userData as { cell?: { gx: number; gz: number } }).cell : undefined;
+    if (cell) ghostAt(cell);
+    return;
+  }
   const hit = view.pick(e.clientX, e.clientY, world.pickables);
   world.setHover(hit ? (findFlag(hit.object, 'plotId') ?? null) : null);
 });
@@ -666,6 +830,11 @@ window.addEventListener('resize', () => view.resize());
 
 // Q/E 或左右方向键转视角。右键拖拽太隐蔽，键盘是最容易发现的入口
 window.addEventListener('keydown', (e) => {
+  // 放置模式优先吃 Esc，无论焦点在哪
+  if (e.key === 'Escape' && placing) {
+    endPlacement(true);
+    return;
+  }
   const t = e.target;
   if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
   // 30°：一下就能看出变化，又不会太跳
@@ -705,8 +874,79 @@ window.addEventListener('wheel', bumpActivity, { passive: true });
 /** 自动经营步进的节流点：专注中每约 1 秒跑一次，别每秒 60 次空转 */
 let autoStepAt = 0;
 
+// ---------- 性能监控浮层 ----------
+// 实时采样 FPS / 帧时间 / DrawCall / 三角面 / GPU 资源 / JS 堆；
+// 掉帧或卡顿尖刺时整块高亮告警，并节流向 console.warn，方便「持续关注性能异常」。
+const PERF_WARN_FPS = 45;
+const PERF_WARN_MS = 50;
+let perfEl: HTMLDivElement | null = null;
+const perfFps = el('span', 'perf-val');
+const perfMs = el('span', 'perf-val');
+const perfCalls = el('span', 'perf-val');
+const perfTri = el('span', 'perf-val');
+const perfGeo = el('span', 'perf-val');
+const perfHeap = el('span', 'perf-val');
+let perfFrames = 0;
+let perfAccumMs = 0;
+let perfLastWarnLog = 0;
+
+function buildPerfEl(): HTMLDivElement {
+  const root = el('div', 'perf') as HTMLDivElement;
+  const mk = (k: string, v: HTMLElement) => {
+    const row = el('div', 'perf-row');
+    row.appendChild(el('span', 'perf-key', k));
+    row.appendChild(v);
+    return row;
+  };
+  root.appendChild(mk('FPS', perfFps));
+  root.appendChild(mk('帧', perfMs));
+  root.appendChild(mk('Draw', perfCalls));
+  root.appendChild(mk('三角', perfTri));
+  root.appendChild(mk('几何/纹', perfGeo));
+  root.appendChild(mk('JS堆', perfHeap));
+  root.style.display = state.settings.perfMonitor ? '' : 'none';
+  uiRoot.appendChild(root);
+  return root;
+}
+
+function perfSample(frameMs: number, snap: PerfSnapshot): void {
+  if (!perfEl) perfEl = buildPerfEl();
+  perfFrames += 1;
+  perfAccumMs += frameMs;
+  if (perfAccumMs < 500) return; // 每半秒汇总一次，数字稳定可读
+  const avgFps = perfFrames / (perfAccumMs / 1000);
+  const avgMs = perfAccumMs / perfFrames;
+  const warn = avgFps < PERF_WARN_FPS || frameMs > PERF_WARN_MS;
+  perfFps.textContent = avgFps.toFixed(0);
+  perfMs.textContent = `${avgMs.toFixed(1)}ms`;
+  perfCalls.textContent = String(snap.calls);
+  perfTri.textContent = snap.triangles >= 1000 ? `${(snap.triangles / 1000).toFixed(1)}k` : String(snap.triangles);
+  perfGeo.textContent = `${snap.geometries}/${snap.textures}`;
+  perfHeap.textContent = snap.jsHeap > 0 ? `${(snap.jsHeap / 1048576).toFixed(0)}MB` : 'n/a';
+  perfEl.classList.toggle('warn', warn);
+  if (warn) {
+    const now = Date.now();
+    if (now - perfLastWarnLog > 3000) {
+      perfLastWarnLog = now;
+      console.warn(`[perf] 性能异常 avgFPS=${avgFps.toFixed(1)} frameMs=${frameMs.toFixed(1)} calls=${snap.calls} tris=${snap.triangles}`);
+    }
+  }
+  perfFrames = 0;
+  perfAccumMs = 0;
+}
+
+/** 按设置开关切换浮层显隐（懒创建：开启时才建 DOM） */
+function applyPerfVisibility(): void {
+  if (!perfEl) {
+    if (state.settings.perfMonitor) perfEl = buildPerfEl();
+    return;
+  }
+  perfEl.style.display = state.settings.perfMonitor ? '' : 'none';
+}
+
 function frame(t: number): void {
-  const dt = Math.min(0.05, (t - last) / 1000);
+  const rawInterval = Math.min(1000, t - last); // 真实帧间隔(ms)，不 clamp，供性能监控
+  const dt = Math.min(0.05, rawInterval / 1000);
   last = t;
   const now = Date.now();
 
@@ -810,10 +1050,15 @@ function frame(t: number): void {
   speech.update(view.camera, canvas, now);
 
   view.render();
+  if (state.settings.perfMonitor) perfSample(rawInterval, view.perf);
   requestAnimationFrame(frame);
 }
 
 const lowSpecInit = view.isPowerSave;
+// 首屏若停在方岛且为空，先随机铺测试内容再同步
+if (state.activeIsland === SQUARE_ID && state.buildings.length === 0 && state.factories.length === 0) {
+  seedSquareTestLayout(state);
+}
 world.sync(state, Date.now(), lowSpecInit);
 world.applyTimeOfDay(isNight());
 checkAchievements(state);

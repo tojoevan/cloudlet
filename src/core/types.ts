@@ -2,8 +2,25 @@ export type CropId = 'wheat' | 'corn' | 'carrot' | 'strawberry' | 'pumpkin' | 'c
 export type ProductId = 'bread' | 'butter' | 'jam' | 'wood' | 'milk';
 export type ItemId = CropId | ProductId;
 export type FactoryType = 'bakery' | 'dairy' | 'juice' | 'lumber' | 'ranch';
-export type BuildingType = 'house' | 'cafe' | 'park' | 'fountain';
+export type BuildingType = 'house' | 'cafe' | 'park' | 'fountain' | 'road';
+/** 岛屿形状：圆岛（极坐标布局）与方岛（网格布局）。以后可扩展更多空岛形态 */
+export type IslandShape = 'round' | 'square';
 export type RecipeId = `${FactoryType}:${string}`;
+
+/** 一座岛的元信息（用于切换列表与渲染时判断形状） */
+export interface IslandMeta {
+  id: string;
+  shape: IslandShape;
+  name: string;
+}
+
+/** 单座岛自带的玩法数据。顶层 GameState 的 buildings/plots/factories 始终指向「当前激活岛」，
+ *  其余岛的数据暂存在 islandData 仓库里，切换时整体交换。 */
+export interface IslandData {
+  buildings: Building[];
+  plots: Plot[];
+  factories: FactoryState[];
+}
 
 export interface Plot {
   id: number;
@@ -23,6 +40,9 @@ export interface FactorySlot {
 export interface FactoryState {
   type: FactoryType;
   slots: FactorySlot[];
+  /** 方岛网格放置：锚点格(gx,gz)。生产型建筑占地 2×2。圆岛忽略，用 factoryPos 按序排。 */
+  gx?: number;
+  gz?: number;
 }
 
 export interface Building {
@@ -30,8 +50,15 @@ export interface Building {
   type: BuildingType;
   /** 外观随机种子。存档只存种子，不存模型。 */
   seed: number;
-  /** 等级 1..BUILDING_MAX_LEVEL。升级已有房屋比新建更省空间，人口/繁荣随等级放大。 */
+  /** 等级 1..BUILDING_MAX_LEVEL。升级已有房屋比新建更省空间，人口/繁荣随等级放大。对住宅也代表楼层数。 */
   level: number;
+  /** 方岛网格放置：锚点格(gx,gz)、占地(w×h 格，默认 1×1)、朝向(0/1/2/3 = 0/90/180/270°)。
+   *  圆岛忽略这些字段，改用极坐标按序排布。新建建筑若在方岛则必填 gx/gz。 */
+  gx?: number;
+  gz?: number;
+  w?: number;
+  h?: number;
+  rot?: 0 | 1 | 2 | 3;
 }
 
 export interface OrderLine {
@@ -64,6 +91,8 @@ export interface Settings {
    * 用户在设置里手动同步成功一次后自动开启。
    */
   cloudSync: boolean;
+  /** 性能监控浮层：实时 FPS/帧时间/DrawCall/三角面/内存，掉帧时高亮告警。默认开启，便于持续关注性能异常。 */
+  perfMonitor: boolean;
 }
 
 export interface Stats {
@@ -102,6 +131,12 @@ export interface GameState {
   deviceId: string;
   /** 绑定的账号 id（登录后写入），未登录为空。仅作归属标记，等级/会员以服务端为准。 */
   accountId?: string;
+  /** 已解锁的岛屿列表。每座岛是独立空间，各有自己的建筑/农田/工厂。 */
+  islands: IslandMeta[];
+  /** 当前正在查看的岛屿 id。顶层 buildings/plots/factories 始终等于该岛的数据。 */
+  activeIsland: string;
+  /** 非激活岛屿的数据仓库：id → { buildings, plots, factories }。切换时与顶层字段交换。 */
+  islandData: Record<string, IslandData>;
   /** 最后保存时刻（ms）。回来时用它算离线时长。 */
   savedAt: number;
   level: number;

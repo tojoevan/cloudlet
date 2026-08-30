@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mat } from './mat';
 import { getShirts } from './palette';
 import { mulberry32, range } from './rng';
+import { cellToWorld } from '../core/grid';
 
 const ISLAND_WALK_RADIUS = 7.6;
 /** 农田中心，小人绕着走，别踩进地里 */
@@ -141,6 +142,17 @@ export class Agents {
   private lumber: Person | null = null;
   private ranch: Person | null = null;
   private nextId = 1;
+  /** 当前岛形态：圆岛用极坐标漫步，方岛在方格范围内走、并偏好道路 */
+  private shape: 'round' | 'square' = 'round';
+  private squareHalf = 7.6;
+  private roadCells: { gx: number; gz: number }[] = [];
+
+  /** 切换岛屿时由 World 调用，告知居民新的活动范围与道路网格 */
+  configure(shape: 'round' | 'square', half: number, roadCells: { gx: number; gz: number }[]): void {
+    this.shape = shape;
+    this.squareHalf = half;
+    this.roadCells = roadCells;
+  }
 
   /** 射线检测用。居民在移动，所以每次取都要现算 */
   get hitTargets(): THREE.Object3D[] {
@@ -291,6 +303,26 @@ export class Agents {
   }
 
   private newTarget(p: Person, rng: () => number = Math.random): void {
+    if (this.shape === 'square') {
+      let x: number;
+      let z: number;
+      // 有道路就优先沿路走，让散步有「规划感」
+      if (this.roadCells.length > 0 && rng() < 0.6) {
+        const c = this.roadCells[Math.floor(rng() * this.roadCells.length)];
+        const w = cellToWorld(c.gx, c.gz);
+        x = w.x;
+        z = w.z;
+      } else {
+        const h = this.squareHalf - 0.5;
+        x = range(rng, -h, h);
+        z = range(rng, -h, h);
+      }
+      p.target.set(x, z);
+      p.speed = range(rng, 0.35, 0.75);
+      p.pauseFor = rng() < 0.35 ? range(rng, 1.5, 5) : 0;
+      this.faceTarget(p);
+      return;
+    }
     for (let i = 0; i < 12; i++) {
       const a = rng() * Math.PI * 2;
       const r = range(rng, 1.6, ISLAND_WALK_RADIUS);
@@ -366,6 +398,12 @@ export class Agents {
 
       if (p.pos.distanceTo(p.target) < 0.16) {
         this.newTarget(p);
+      } else if (this.shape === 'square') {
+        const h = this.squareHalf - 0.5;
+        if (Math.abs(p.pos.x) > h || Math.abs(p.pos.y) > h) {
+          p.target.set(range(Math.random, -h, h), range(Math.random, -h, h));
+          this.faceTarget(p);
+        }
       } else if (p.pos.length() > ISLAND_WALK_RADIUS) {
         // 兜底：万一走出边界就掉头回岛心
         p.target.set(0, 0);
