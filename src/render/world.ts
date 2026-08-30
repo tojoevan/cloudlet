@@ -14,7 +14,6 @@ import {
   makePlotRing,
   makePond,
   makeRock,
-  makeTerrace,
   makeTree,
 } from './meshes/terrain';
 import { ISLAND_RADIUS } from './palette';
@@ -70,8 +69,9 @@ export class World {
   private scene: THREE.Scene;
   private crops: ({ mesh: CropMesh; crop: string } | null)[] = [];
   private built = new Map<string, THREE.Group>();
-  /** 悬空建筑脚下的局部地基（小平台），与 built 一一对应 */
-  private terraces = new Map<string, THREE.Group>();
+  /** 浮空岛本体（整圈可随建筑扩张而重建变大），与 root 分离便于单独重建 */
+  private island: THREE.Group | null = null;
+  private islandRadius = ISLAND_RADIUS;
   private factories = new Map<string, THREE.Group>();
   /** 工厂头顶的运转气泡，与工厂一一对应 */
   private bubbles = new Map<string, Bubbles>();
@@ -137,7 +137,6 @@ export class World {
   private resetCollections(): void {
     this.crops = [];
     this.built = new Map();
-    this.terraces = new Map();
     this.factories = new Map();
     this.bubbles = new Map();
     this.clouds = [];
@@ -149,7 +148,7 @@ export class World {
   }
 
   private buildTerrain(): void {
-    this.root.add(makeIsland());
+    this.buildIsland(this.islandRadius);
 
     const rng = mulberry32(90210);
     // 树：绕岛一圈，避开农田与建筑位
@@ -226,6 +225,37 @@ export class World {
     }
   }
 
+  /** 单独重建浮空岛本体（保留树/石/池塘等其余地形）。建筑往外排时整圈放大。 */
+  private buildIsland(radius: number): void {
+    if (this.island) {
+      this.root.remove(this.island);
+      this.island.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.geometry) m.geometry.dispose();
+        const mat = (m as unknown as { material?: THREE.Material | THREE.Material[] }).material;
+        if (mat) (Array.isArray(mat) ? mat : [mat]).forEach((x) => x.dispose());
+      });
+    }
+    this.islandRadius = radius;
+    this.island = makeIsland(20260829, radius);
+    this.root.add(this.island);
+  }
+
+  /** 建筑/工厂排到当前岛缘外时，把岛屿整圈放大到能包住它们为止 */
+  private ensureIslandFits(state: GameState): void {
+    let need = ISLAND_RADIUS; // 至少保持基础大小
+    state.buildings.forEach((_, i) => {
+      const p = buildingPos(i);
+      need = Math.max(need, Math.hypot(p.x, p.z));
+    });
+    state.factories.forEach((_, i) => {
+      const p = factoryPos(i);
+      need = Math.max(need, Math.hypot(p.x, p.z));
+    });
+    need += 1.6; // 边距，让建筑稳稳落在岛上而非压在边缘
+    if (need > this.islandRadius + 0.01) this.buildIsland(need);
+  }
+
   private buildFarm(): void {
     for (let i = 0; i < PLOT_COUNT; i++) {
       const tile = makePlot(i);
@@ -294,11 +324,12 @@ export class World {
   }
 
   private syncBuildings(state: GameState): void {
+    this.ensureIslandFits(state);
     const seen = new Set<string>();
     state.buildings.forEach((b, i) => {
       seen.add(b.id);
       if (this.built.has(b.id)) return;
-      const { group, lights } = makeBuilding(b.type, b.seed);
+      const { group, lights } = makeBuilding(b.type, b.seed, b.level ?? 1);
       const pos = buildingPos(i);
       group.position.copy(pos);
       // 面朝岛心
@@ -308,28 +339,27 @@ export class World {
       this.root.add(group);
       this.built.set(b.id, group);
       this.windowLights.push(...lights);
-
-      // 局部扩大：建筑被排到岛缘之外时，脚下补一块地基，避免悬空
-      const d = Math.hypot(pos.x, pos.z);
-      if (d > ISLAND_RADIUS - 1.1) {
-        const terrace = makeTerrace(b.seed + 7);
-        // 整体下沉 0.04：重叠环带交给主岛草皮（在其上方）覆盖，平台只在岛缘外露出，避免 z-fighting 闪烁
-        terrace.position.set(pos.x, -0.04, pos.z);
-        this.root.add(terrace);
-        this.terraces.set(b.id, terrace);
-      }
     });
 
     for (const [id, group] of this.built) {
       if (seen.has(id)) continue;
       this.root.remove(group);
       this.built.delete(id);
-      const terrace = this.terraces.get(id);
-      if (terrace) {
-        this.root.remove(terrace);
-        this.terraces.delete(id);
-      }
     }
+  }
+
+  /** 某栋建筑外观变了（如升级），摘掉旧模型，下一轮 sync 会用新等级重建 */
+  refreshBuilding(id: string): void {
+    const g = this.built.get(id);
+    if (!g) return;
+    this.root.remove(g);
+    g.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.geometry) m.geometry.dispose();
+      const mat = (m as unknown as { material?: THREE.Material | THREE.Material[] }).material;
+      if (mat) (Array.isArray(mat) ? mat : [mat]).forEach((x) => x.dispose());
+    });
+    this.built.delete(id);
   }
 
   private syncFactories(state: GameState): void {

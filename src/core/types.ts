@@ -30,6 +30,8 @@ export interface Building {
   type: BuildingType;
   /** 外观随机种子。存档只存种子，不存模型。 */
   seed: number;
+  /** 等级 1..BUILDING_MAX_LEVEL。升级已有房屋比新建更省空间，人口/繁荣随等级放大。 */
+  level: number;
 }
 
 export interface OrderLine {

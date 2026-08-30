@@ -13,6 +13,8 @@ import {
   startAllSlots,
   startRecipe,
   unlockSlot,
+  upgradeBuilding,
+  BUILDING_MAX_LEVEL,
 } from './core/actions';
 import { checkAchievements } from './core/achievements';
 import {
@@ -33,6 +35,7 @@ import { advance, tick } from './core/simulation';
 import { createInitialState } from './core/state';
 import type { BuildingType, CropId, FactoryType, GameState, ItemId } from './core/types';
 import { RECIPE_BY_ID } from './data/factories';
+import { BUILDINGS } from './data/buildings';
 import { randomLine, randomFarmLine, randomLumberLine, randomRanchLine } from './data/lines';
 import { plotPosition, World } from './render/world';
 import { SceneView } from './render/scene';
@@ -160,7 +163,7 @@ const bar = new ActionBar({
     markDirty();
     saveNow();
   },
-  onBuild: () => openBuildPanel(state, { onBuild: doBuild, onBuildFactory: doBuildFactory }),
+  onBuild: () => openBuildPanel(state, { onBuild: doBuild, onBuildFactory: doBuildFactory, onUpgrade: doUpgrade }),
   onFocus: () =>
     openFocusPanel(state, Date.now(), {
       onStart: (minutes) => {
@@ -339,6 +342,24 @@ function doBuild(type: BuildingType): void {
   }
   audio.play('coin');
   toast(`${type === 'house' ? '小屋' : '建筑'}落成`);
+  markDirty();
+  saveNow();
+}
+
+function doUpgrade(type: BuildingType): void {
+  // 选当前等级最低的那一栋来升，让整体更均衡
+  const candidates = state.buildings.filter((b) => b.type === type && (b.level ?? 1) < BUILDING_MAX_LEVEL);
+  if (candidates.length === 0) return toast('没有可升级的建筑');
+  const target = candidates.reduce((a, b) => ((b.level ?? 1) < (a.level ?? 1) ? b : a));
+  const r = upgradeBuilding(state, target.id, Date.now());
+  if (!r.ok) {
+    audio.play('error');
+    return toast(r.reason);
+  }
+  audio.play('coin');
+  toast(`${BUILDINGS[type].name}升到 ${r.data.level} 级`);
+  // 升级后房子外形变了，重建对应模型
+  world.refreshBuilding(target.id);
   markDirty();
   saveNow();
 }

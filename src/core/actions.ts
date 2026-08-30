@@ -17,8 +17,17 @@ export type ActionResult<T = void> =
   | { ok: true; data: T }
   | { ok: false; reason: string };
 
+/** 建筑最高等级。升级已有房屋比新建更省空间，人口/繁荣按等级放大。 */
+export const BUILDING_MAX_LEVEL = 3;
+
 function fail(reason: string): ActionResult<never> {
   return { ok: false, reason };
+}
+
+/** 第 k 座（0 基）某类建筑的新建成本 = cost * costGrowth^k */
+function buildCostOf(type: BuildingType, k: number): number {
+  const def = BUILDINGS[type];
+  return Math.floor(def.cost * Math.pow(def.costGrowth, k));
 }
 
 export function plant(state: GameState, plotId: number, crop: CropId, now: number): ActionResult {
@@ -233,9 +242,37 @@ export function build(state: GameState, type: BuildingType, now: number): Action
     id: `b_${now.toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
     type,
     seed: Math.floor(Math.random() * 1e9),
+    level: 1,
   });
   recordBuilding(state, type);
   return { ok: true, data: { cost } };
+}
+
+/** 升级一栋已有建筑到下一等级的成本（比新建便宜，鼓励就地升级、省空间） */
+export function upgradeCost(state: GameState, id: string): number {
+  const b = state.buildings.find((x) => x.id === id);
+  if (!b) return Infinity;
+  const owned = state.buildings.filter((x) => x.type === b.type).length;
+  return Math.floor(buildCostOf(b.type, owned) * 0.6);
+}
+
+/** 升级一栋已有建筑：等级 +1，人口/繁荣随之放大，但不新增占地，省空间。 */
+export function upgradeBuilding(
+  state: GameState,
+  id: string,
+  now: number,
+): ActionResult<{ level: number; cost: number }> {
+  const b = state.buildings.find((x) => x.id === id);
+  if (!b) return fail('建筑不存在');
+  const level = b.level ?? 1;
+  if (level >= BUILDING_MAX_LEVEL) return fail('已是最高级');
+  const cost = upgradeCost(state, id);
+  if (state.coins < cost) return fail('金币不够');
+
+  state.coins -= cost;
+  b.level = level + 1;
+  void now;
+  return { ok: true, data: { level: b.level, cost } };
 }
 
 export function sell(state: GameState, id: ItemId, count: number): ActionResult<{ coins: number }> {

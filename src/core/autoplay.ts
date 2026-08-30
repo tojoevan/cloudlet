@@ -2,7 +2,7 @@ import type { GameState, ItemId } from './types';
 import { BUILDINGS, BUILDING_ORDER } from '../data/buildings';
 import { FACTORIES } from '../data/factories';
 import { deliver } from './orders';
-import { build, unlockSlot, sell } from './actions';
+import { build, unlockSlot, sell, upgradeBuilding, upgradeCost, BUILDING_MAX_LEVEL } from './actions';
 import { hasItems, roomFor } from './economy';
 
 /**
@@ -16,16 +16,34 @@ export function autoFocusStep(state: GameState, now: number): void {
     if (hasItems(state, order.lines)) deliver(state, order.id, now);
   }
 
-  // 2) 放下能盖的建筑 / 升级（每次只做一处，并留 300 金币缓冲，别一夜清零）
-  for (const type of BUILDING_ORDER) {
-    const def = BUILDINGS[type];
-    const owned = state.buildings.filter((b) => b.type === type).length;
-    const cost = Math.floor(def.cost * Math.pow(def.costGrowth, owned));
-    if (cost + 300 <= state.coins) {
-      const r = build(state, type, now);
-      if (r.ok) {
+  // 2) 自动经营：优先升级已有建筑（就地放大、不占新地，更省空间），
+  //    没有可升级的再新建一处。每次只做一处，并留 300 金币缓冲，别一夜清零。
+  const upgradable = state.buildings.filter((b) => (b.level ?? 1) < BUILDING_MAX_LEVEL);
+  let didBuild = false;
+  if (upgradable.length > 0) {
+    // 挑最便宜的可升级项，先用最少的钱把已有房子升起来
+    const pick = upgradable
+      .map((b) => ({ b, c: upgradeCost(state, b.id) }))
+      .filter((x) => x.c + 300 <= state.coins)
+      .sort((a, b) => a.c - b.c)[0];
+    if (pick) {
+      if (upgradeBuilding(state, pick.b.id, now).ok) {
         state.focus.placed += 1;
-        break; // 一次一处，下秒再继续
+        didBuild = true;
+      }
+    }
+  }
+  if (!didBuild) {
+    for (const type of BUILDING_ORDER) {
+      const def = BUILDINGS[type];
+      const owned = state.buildings.filter((b) => b.type === type).length;
+      const cost = Math.floor(def.cost * Math.pow(def.costGrowth, owned));
+      if (cost + 300 <= state.coins) {
+        const r = build(state, type, now);
+        if (r.ok) {
+          state.focus.placed += 1;
+          break; // 一次一处，下秒再继续
+        }
       }
     }
   }

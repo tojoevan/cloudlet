@@ -47,10 +47,11 @@ export function jitter(
   return geo;
 }
 
-/** 浮空岛：草皮 + 土层 + 扰动过的岩锥，底部收成尖 */
-export function makeIsland(seed = 20260829): THREE.Group {
+/** 浮空岛：草皮 + 土层 + 扰动过的岩锥，底部收成尖。
+ *  radius 可调：建筑越往外排，岛屿就整圈跟着长大，避免房子悬空或踩在小块地基上。 */
+export function makeIsland(seed = 20260829, radius = ISLAND_RADIUS): THREE.Group {
   const rng = mulberry32(seed);
-  const R = ISLAND_RADIUS;
+  const R = radius;
   const g = new THREE.Group();
 
   const topH = 0.7;
@@ -111,60 +112,6 @@ export function makeIsland(seed = 20260829): THREE.Group {
     g.add(chunk);
   }
 
-  return g;
-}
-
-/**
- * 局部扩大地基：当建筑被排到岛缘之外时，在它脚下补一小块浮岛平台，
- * 让房子有地可站、看起来像岛屿向此处自然伸出，而不是悬空。
- * 顶面草皮与主岛齐平（y≈0），下面依次是土层、岩层、底尖，复用主岛的造型语言。
- */
-export function makeTerrace(seed = 12345): THREE.Group {
-  const rng = mulberry32(seed);
-  const R = 1.75;
-  const g = new THREE.Group();
-
-  const topH = 0.5;
-  const soilH = 0.9;
-  const rockH = 1.6;
-  const tipH = 2.6;
-  const ySoil = -topH;
-  const yRock = ySoil - soilH;
-  const yTip = yRock - rockH;
-
-  const top = new THREE.Mesh(
-    jitter(new THREE.CylinderGeometry(R, R * 0.97, topH, 14).translate(0, -topH / 2, 0), 0),
-    mat(getPalette().grass),
-  );
-  top.receiveShadow = true;
-  g.add(top);
-
-  const soil = new THREE.Mesh(
-    jitter(new THREE.CylinderGeometry(R * 0.97, R * 0.82, soilH, 14).translate(0, ySoil - soilH / 2, 0), 0.4, ySoil),
-    mat(getPalette().soilDark),
-  );
-  g.add(soil);
-
-  const rock = new THREE.Mesh(
-    jitter(new THREE.CylinderGeometry(R * 0.82, R * 0.5, rockH, 14).translate(0, yRock - rockH / 2, 0), 0.4),
-    mat(getPalette().rock),
-  );
-  g.add(rock);
-
-  const tip = new THREE.Mesh(
-    jitter(new THREE.CylinderGeometry(R * 0.5, 0, tipH, 14).translate(0, yTip - tipH / 2, 0), 0.4),
-    mat(getPalette().rockDark),
-  );
-  g.add(tip);
-
-  // 边缘小岩块，柔化圆形，与主岛同款
-  for (let i = 0; i < 4; i++) {
-    const a = rng() * Math.PI * 2;
-    const s = range(rng, 0.16, 0.3);
-    const chunk = new THREE.Mesh(jitter(new THREE.IcosahedronGeometry(s, 0), s * 0.4), mat(getPalette().rock));
-    chunk.position.set(Math.cos(a) * R * 0.92, -range(rng, 0.05, 0.3), Math.sin(a) * R * 0.92);
-    g.add(chunk);
-  }
   return g;
 }
 

@@ -79,9 +79,9 @@ export function incomeRate(state: GameState): number {
 }
 
 export function prosperityOf(state: GameState): number {
-  return state.buildings.reduce((s, b) => s + BUILDINGS[b.type].prosperity, 0);
+  return state.buildings.reduce((s, b) => s + BUILDINGS[b.type].prosperity * (b.level ?? 1), 0);
 }
 
 export function populationOf(state: GameState): number {
-  return state.buildings.reduce((s, b) => s + BUILDINGS[b.type].pop, 0);
+  return state.buildings.reduce((s, b) => s + Math.round(BUILDINGS[b.type].pop * (b.level ?? 1)), 0);
 }

@@ -92,6 +92,12 @@ function normalize(s: GameState): GameState {
   s.settings.channel ??= 'citypop';
   s.settings.volume ??= 0.6;
   s.focus.placed ??= 0;
+  // 老存档的建筑没有 level 字段，补成 1，避免升级逻辑读 undefined
+  if (Array.isArray(s.buildings)) {
+    for (const b of s.buildings) {
+      if (typeof (b as { level?: number }).level !== 'number') (b as { level: number }).level = 1;
+    }
+  }
   return s;
 }
 

@@ -23,7 +23,7 @@ export function createInitialState(deviceId: string): GameState {
       readyAt: 0,
     })),
     factories: [],
-    buildings: [{ id: 'b_0', type: 'house', seed: 1 }],
+    buildings: [{ id: 'b_0', type: 'house', seed: 1, level: 1 }],
     inventory: {},
     orders: [],
     stats: { harvests: 0, ordersDone: 0, playSeconds: 0, bestCombo: 0, focusSessions: 0, focusMinutes: 0 },

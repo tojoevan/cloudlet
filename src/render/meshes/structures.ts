@@ -39,6 +39,7 @@ function roofOf(w: number, h: number, d: number, color: number): THREE.Mesh {
 export function makeHouse(
   seed: number,
   palette?: { body: number; roof: number; accent: number },
+  level = 1,
 ): StructureMesh {
   const rng = mulberry32(seed);
   // 没指定配色就按 seed 抽一组——住宅要各色各样，才像住了一条街的人家
@@ -91,6 +92,21 @@ export function makeHouse(
   }
 
   g.userData.lights = lights;
+
+  // 升级外观：整体放大一点，并在外圈加装饰环表示等级（每升一级多一圈），
+  // 让「升级已有房屋」看得出来、又不新增占地。
+  const s = 1 + (level - 1) * 0.14;
+  g.scale.setScalar(s);
+  const ringMat = matOwn(p.accent);
+  for (let L = 2; L <= level; L++) {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(Math.max(w, d) / 2 + 0.04, 0.045, 6, 18),
+      ringMat,
+    );
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = h * (0.3 + (L - 2) * 0.18);
+    g.add(ring);
+  }
   return { group: g, lights };
 }
 
@@ -256,9 +272,13 @@ export function makeParkBench(seed: number): THREE.Group {
   return g;
 }
 
-export function makeBuilding(type: BuildingType, seed: number): StructureMesh {
+export function makeBuilding(type: BuildingType, seed: number, level = 1): StructureMesh {
   const def = BUILDINGS[type];
-  if (type === 'fountain') return makeFountain(seed);
+  if (type === 'fountain') {
+    const r = makeFountain(seed);
+    r.group.scale.setScalar(1 + (level - 1) * 0.12);
+    return r;
+  }
   if (type === 'park') {
     const g = new THREE.Group();
     const lawn = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.95, 0.12, 10), mat(def.body));
@@ -278,9 +298,10 @@ export function makeBuilding(type: BuildingType, seed: number): StructureMesh {
       g.add(t);
     }
     g.userData.lights = [];
+    g.scale.setScalar(1 + (level - 1) * 0.12);
     return { group: g, lights: [] };
   }
   // 住宅走随机配色；咖啡馆、公园、喷泉各有固定形象，别打乱
-  if (type === 'house') return makeHouse(seed);
-  return makeHouse(seed, { body: def.body, roof: def.roof, accent: def.accent });
+  if (type === 'house') return makeHouse(seed, undefined, level);
+  return makeHouse(seed, { body: def.body, roof: def.roof, accent: def.accent }, level);
 }

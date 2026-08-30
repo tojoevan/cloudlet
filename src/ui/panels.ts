@@ -4,6 +4,7 @@ import { itemName, itemPrice, populationOf, SELL_RATE } from '../core/economy';
 import { FOCUS_PRESETS, focusRemainMs, isFocusing } from '../core/focus';
 import type { BuildingType, CropId, FactoryType, GameState, ItemId, Settings } from '../core/types';
 import { BUILDINGS, BUILDING_ORDER } from '../data/buildings';
+import { BUILDING_MAX_LEVEL, upgradeCost } from '../core/actions';
 import { CROPS, CROP_ORDER } from '../data/crops';
 import { FACTORIES, FACTORY_ORDER, PRODUCTS, recipesOf } from '../data/factories';
 import { itemColor } from '../data/items';
@@ -153,7 +154,11 @@ export function openFactoryPanel(
 
 export function openBuildPanel(
   state: GameState,
-  ctx: { onBuild: (t: BuildingType) => void; onBuildFactory: (t: FactoryType) => void },
+  ctx: {
+    onBuild: (t: BuildingType) => void;
+    onBuildFactory: (t: FactoryType) => void;
+    onUpgrade: (t: BuildingType) => void;
+  },
 ): void {
   const body = el('div');
   const pop = populationOf(state);
@@ -184,6 +189,37 @@ export function openBuildPanel(
     );
   }
   body.appendChild(grid);
+
+  // 升级已有建筑：就地升等级，人口/繁荣放大但不新增占地，比新建更省空间
+  const upgradable = BUILDING_ORDER.filter((t) =>
+    state.buildings.some((b) => b.type === t && (b.level ?? 1) < BUILDING_MAX_LEVEL),
+  );
+  if (upgradable.length > 0) {
+    body.appendChild(el('p', 'hint', '升级建筑（更省空间）'));
+    const ugrid = el('div', 'grid');
+    for (const t of upgradable) {
+      const def = BUILDINGS[t];
+      // 选当前等级最低的那一栋来升
+      const lowest = state.buildings
+        .filter((b) => b.type === t)
+        .reduce((a, b) => ((b.level ?? 1) < (a.level ?? 1) ? b : a));
+      const cost = upgradeCost(state, lowest.id);
+      const lv = lowest.level ?? 1;
+      ugrid.appendChild(
+        card({
+          color: def.accent,
+          name: `${def.name} Lv${lv}→${lv + 1}`,
+          meta: `${fmt(cost)} 金 · 不占新地`,
+          disabled: state.coins < cost,
+          onClick: () => {
+            ctx.onUpgrade(t);
+            closeModal();
+          },
+        }),
+      );
+    }
+    body.appendChild(ugrid);
+  }
 
   body.appendChild(el('p', 'hint', '工厂'));
   const fgrid = el('div', 'grid');
