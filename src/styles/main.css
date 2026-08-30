@@ -278,6 +278,22 @@ button {
   display: none;
 }
 
+/* 订单挂到顶部栏（会员等级之后）时，取消浮动定位，改随顶栏流式排布 */
+.hud .orders {
+  position: static;
+  top: auto;
+  right: auto;
+  width: auto;
+  max-width: min(94vw, 240px);
+  align-items: stretch;
+}
+
+.hud .orders-body {
+  max-height: calc(100vh - 130px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .order {
   background: var(--c-panel);
   border-radius: var(--radius);

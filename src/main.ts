@@ -135,6 +135,8 @@ const hud = new HUD(
   () => openInventoryPanel(state, (id, count) => doSell(id, count)),
 );
 const board = new OrderBoard();
+// 订单面板挂到顶部栏「会员等级」芯片之后，随顶栏流式排布，不再悬浮遮挡画面
+hud.el.appendChild(board.el);
 
 // 番茄钟进度条贴在屏幕最上沿，专注时才出现
 const focusBar = el('div', 'focusbar');
@@ -299,7 +301,7 @@ function openSettings(): void {
   });
 }
 
-uiRoot.append(hud.el, board.el, bar.el, focusBar);
+uiRoot.append(hud.el, bar.el, focusBar);
 const speech = new SpeechBubble(uiRoot);
 
 function floatAtCanvas(text: string, kind: '' | 'gold' | 'good' = ''): void {
