@@ -105,3 +105,37 @@ export function swatch(color: number): HTMLElement {
   s.style.background = hex(color);
   return s;
 }
+
+/** 资源条/徽章用的 16×16 内联 SVG 图标，靠 currentColor 着色，颜色由 CSS 决定 */
+export type IconName = 'level' | 'coin' | 'prosper' | 'store' | 'codex' | 'ach' | 'tier';
+
+const ICON_PATHS: Record<IconName, string> = {
+  // 星徽（等级）
+  level:
+    '<path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.3 4.2 13.6l.7-4.3-3.1-3 4.3-.6z" fill="currentColor"/>',
+  // 硬币
+  coin:
+    '<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="8" r="2.4" fill="currentColor"/>',
+  // 叶子（繁荣/人口）
+  prosper:
+    '<path d="M13.4 3.1C7.6 2.9 4.2 5.9 4.2 10.9c0 .5.1.9.2 1.3 1-4.4 4-7.1 8.4-8.1.3-1 .1-1.9-.4-2.5z" fill="currentColor"/>',
+  // 仓库（箱子）
+  store: '<path d="M3 6.2 8 3.2l5 3v6.6H3z" fill="currentColor"/>',
+  // 图鉴（书本）
+  codex:
+    '<rect x="2.8" y="3.2" width="10.4" height="9.6" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 3.2v9.6" stroke="currentColor" stroke-width="1.3"/>',
+  // 奖杯（成就）
+  ach:
+    '<path d="M5 3.2h6v3a3 3 0 01-6 0z" fill="currentColor"/><path d="M5 4.2H3v.8a2 2 0 002 2M11 4.2h2v.8a2 2 0 01-2 2M8 9v3.2M6 13.2h4" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/>',
+  // 皇冠（会员）
+  tier:
+    '<path d="M3 6.2 5.2 10.2h5.6L13 6.2 10 7.6 8 4.2 6 7.6z" fill="currentColor"/>',
+};
+
+export function icon(name: IconName): SVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('class', 'ic');
+  svg.innerHTML = ICON_PATHS[name];
+  return svg;
+}

@@ -12,7 +12,7 @@ import { focusRemainMs, isFocusing } from '../core/focus';
 import { isFever } from '../core/simulation';
 import type { GameState, ItemId } from '../core/types';
 import { itemColor } from '../data/items';
-import { el, fmt, fmtMMSS, hex, swatch } from './dom';
+import { el, fmt, fmtMMSS, icon, type IconName, swatch } from './dom';
 
 interface Chip {
   root: HTMLElement;
@@ -20,13 +20,9 @@ interface Chip {
   sub: HTMLElement;
 }
 
-function makeChip(color: number | null, cls = ''): Chip {
+function makeChip(iconName: IconName | null, cls = ''): Chip {
   const root = el('div', `chip ${cls}`.trim());
-  if (color !== null) {
-    const dot = el('span', 'dot');
-    dot.style.background = hex(color);
-    root.appendChild(dot);
-  }
+  if (iconName !== null) root.appendChild(icon(iconName));
   const text = el('span', undefined, '');
   const sub = el('span', 'sub', '');
   root.appendChild(text);
@@ -36,17 +32,17 @@ function makeChip(color: number | null, cls = ''): Chip {
 
 export class HUD {
   readonly el = el('div', 'hud');
-  private lv = makeChip(null, 'lv');
-  private coin = makeChip(0xe9b824);
-  private prop = makeChip(0x6a994e);
+  private lv = makeChip('level', 'lv');
+  private coin = makeChip('coin', 'coin');
+  private prop = makeChip('prosper', 'prop');
   /** 仓库容量本身就是仓库入口，点它开仓库面板 */
-  private store = makeChip(0x457b9d, 'clickable');
+  private store = makeChip('store', 'store clickable');
   private fever = el('div', 'chip fever', '热潮 ×2');
   /** 图鉴与成就做成可点的进度展示，既是入口也是收集欲的钩子 */
-  private codex = makeChip(0x9b8ec4, 'clickable');
-  private ach = makeChip(0xe9b824, 'clickable');
+  private codex = makeChip('codex', 'codex clickable');
+  private ach = makeChip('ach', 'ach clickable');
   /** 会员等级徽章，来源是账号档案（服务端权威），未登录时恒为 V1 */
-  private tier = makeChip(0xb088f9, 'clickable');
+  private tier = makeChip('tier', 'tier clickable');
 
   constructor(onCodex: () => void, onAch: () => void, onInv: () => void) {
     this.el.append(

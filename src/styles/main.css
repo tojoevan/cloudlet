@@ -115,12 +115,21 @@ button {
   line-height: 1;
 }
 
-.chip .dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
+.chip .ic {
+  width: 16px;
+  height: 16px;
   flex: none;
+  color: var(--c-ink);
 }
+
+/* 图标按语义上品牌色，资源条更鲜活、更易扫读 */
+.chip.lv .ic { color: #fff; }
+.chip.coin .ic { color: var(--c-gold); }
+.chip.prop .ic { color: var(--c-green); }
+.chip.store .ic { color: var(--c-blue); }
+.chip.codex .ic { color: #8a7bc8; }
+.chip.ach .ic { color: var(--c-gold); }
+.chip.tier .ic { color: #b088f9; }
 
 .chip.lv {
   background: var(--c-blue);
@@ -186,6 +195,7 @@ button {
 .chip.fever {
   background: var(--c-accent);
   color: #fff;
+  box-shadow: 0 0 0 2px rgba(224, 122, 95, 0.25), 0 6px 22px rgba(224, 122, 95, 0.35);
   animation: pulse 0.9s ease-in-out infinite;
 }
 
@@ -263,7 +273,13 @@ button {
   color: #fff;
   font-size: 13px;
   font-weight: 500;
-  transition: transform 0.08s ease, opacity 0.15s ease;
+  box-shadow: var(--shadow);
+  transition: transform 0.08s ease, opacity 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn:not(:disabled):hover {
+  filter: brightness(1.07);
+  box-shadow: 0 8px 26px rgba(43, 58, 85, 0.22);
 }
 
 .btn:active {
