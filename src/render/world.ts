@@ -77,6 +77,12 @@ export class World {
   private windowLights: THREE.MeshStandardMaterial[] = [];
   private bob = 0;
   private pond: THREE.Group | null = null;
+  /** 随风轻摆的对象（树冠、草丛、作物），每帧给一点正弦旋转 */
+  private swayers: { obj: THREE.Object3D; phase: number; amp: number; speed: number }[] = [];
+
+  private dropSway(obj: THREE.Object3D): void {
+    this.swayers = this.swayers.filter((s) => s.obj !== obj);
+  }
   private agents = new Agents();
 
   constructor(scene: THREE.Scene) {
@@ -122,6 +128,8 @@ export class World {
       const t = makeTree(Math.floor(frng() * 1e9));
       t.position.set(px, 0, pz);
       this.root.add(t);
+      const foliage = t.userData.foliage as THREE.Object3D | undefined;
+      if (foliage) this.swayers.push({ obj: foliage, phase: (px + pz) * 1.7, amp: 0.05, speed: 1.6 });
     }
 
     for (let i = 0; i < 14; i++) {
@@ -144,6 +152,7 @@ export class World {
       const tuft = makeGrassTuft(Math.floor(rng() * 1e9));
       tuft.position.set(x, 0, z);
       this.root.add(tuft);
+      this.swayers.push({ obj: tuft, phase: (x + z) * 2.1, amp: 0.13, speed: 2.6 });
     }
 
     // 池塘：农田与树林之间嵌一块静态水景，居民会绕开
@@ -211,18 +220,23 @@ export class World {
       if (!wantCrop) {
         if (slot) {
           this.root.remove(slot.mesh.group);
+          this.dropSway(slot.mesh.group);
           this.crops[i] = null;
         }
         continue;
       }
       if (slot && slot.crop === wantCrop) continue;
-      if (slot) this.root.remove(slot.mesh.group);
+      if (slot) {
+        this.root.remove(slot.mesh.group);
+        this.dropSway(slot.mesh.group);
+      }
 
       const mesh = makeCrop(wantCrop, i * 7919 + 13);
       mesh.group.position.copy(plotPosition(i));
       mesh.group.position.y = 0.07;
       this.root.add(mesh.group);
       this.crops[i] = { mesh, crop: wantCrop };
+      this.swayers.push({ obj: mesh.group, phase: (i * 1.3) % (Math.PI * 2), amp: 0.07, speed: 2.0 });
     }
   }
 
@@ -332,11 +346,45 @@ export class World {
 
     this.updateBubbles(state, now, dt);
 
-    // 池塘水面轻轻起伏，静态水景也有呼吸感
-    if (this.pond?.userData.water) {
-      const w = this.pond.userData.water as THREE.Mesh;
-      const base = this.pond.userData.waterBaseY as number;
-      w.position.y = base + Math.sin(this.bob * 0.8) * 0.012;
+    // 植被随风轻摆：树冠/草丛/作物给一点正弦旋转，错相位避免整齐划一
+    for (const s of this.swayers) {
+      const a = Math.sin(this.bob * s.speed + s.phase) * s.amp;
+      s.obj.rotation.z = a;
+      s.obj.rotation.x = Math.cos(this.bob * s.speed * 0.8 + s.phase) * s.amp * 0.5;
+    }
+
+    // 池塘：水面起伏 + 扩散水波 + 中心喷泉，静态水景也活起来
+    if (this.pond) {
+      const ud = this.pond.userData;
+      if (ud.water) {
+        const w = ud.water as THREE.Mesh;
+        const base = ud.waterBaseY as number;
+        w.position.y = base + Math.sin(this.bob * 0.8) * 0.012;
+      }
+      const ripples = ud.ripples as THREE.Mesh[] | undefined;
+      if (ripples) {
+        const cyc = 4.5; // 每个波环的周期（秒）
+        for (let i = 0; i < ripples.length; i++) {
+          const p = (((this.bob * 0.45) + (i * cyc) / ripples.length) % cyc) / cyc;
+          const scale = 0.4 + p * 4.2;
+          ripples[i].scale.set(scale, scale, scale);
+          (ripples[i].material as THREE.MeshBasicMaterial).opacity = (1 - p) * 0.32;
+        }
+      }
+      const f = ud.fountain as
+        | { points: THREE.Points; pos: Float32Array; vel: Float32Array; n: number; baseY: number; spawn: (i: number) => void }
+        | undefined;
+      if (f) {
+        const g = 3.0 * dt; // 重力
+        for (let i = 0; i < f.n; i++) {
+          f.vel[i * 3 + 1] -= g;
+          f.pos[i * 3] += f.vel[i * 3] * dt;
+          f.pos[i * 3 + 1] += f.vel[i * 3 + 1] * dt;
+          f.pos[i * 3 + 2] += f.vel[i * 3 + 2] * dt;
+          if (f.pos[i * 3 + 1] < f.baseY) f.spawn(i);
+        }
+        (f.points.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+      }
     }
 
     // 省电模式下降低居民更新频率，省一点是一点

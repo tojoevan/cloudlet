@@ -131,6 +131,11 @@ export function makeTree(seed: number, kind?: TreeKind): THREE.Group {
   trunk.castShadow = true;
   g.add(trunk);
 
+  // 树冠单独拎进一个 subgroup，方便整体随风轻摆（树干不动）
+  const foliage = new THREE.Group();
+  g.add(foliage);
+  g.userData.foliage = foliage;
+
   if (k === 'pine') {
     let y = trunkH * 0.75;
     let r = range(rng, 0.42, 0.55);
@@ -139,7 +144,7 @@ export function makeTree(seed: number, kind?: TreeKind): THREE.Group {
       const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), mat(i % 2 ? PALETTE.leafDeep : PALETTE.leafGreen));
       cone.position.y = y + h / 2;
       cone.castShadow = true;
-      g.add(cone);
+      foliage.add(cone);
       y += h * 0.55;
       r *= 0.72;
     }
@@ -153,7 +158,7 @@ export function makeTree(seed: number, kind?: TreeKind): THREE.Group {
       );
       blob.position.set(range(rng, -0.25, 0.25), trunkH + range(rng, 0.05, 0.4), range(rng, -0.25, 0.25));
       blob.castShadow = true;
-      g.add(blob);
+      foliage.add(blob);
     }
   }
 
@@ -239,6 +244,66 @@ export function makePond(seed = 13579): THREE.Group {
     pad.position.set(Math.cos(a) * r, waterBaseY + 0.08, Math.sin(a) * r);
     g.add(pad);
   }
+
+  // —— 活水感：扩散水波 + 中心喷泉粒子 ——
+  // 三层错位的圆环，周期性放大并淡出，像水面被风或鱼轻轻搅动
+  const ripples: THREE.Mesh[] = [];
+  for (let i = 0; i < 3; i++) {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.18, 0.24, 24),
+      new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = waterBaseY + 0.11;
+    g.add(ring);
+    ripples.push(ring);
+  }
+
+  // 中心小喷泉：一束向上的水珠粒子，受重力回落、循环复用
+  const FN = 46;
+  const fpos = new Float32Array(FN * 3);
+  const fvel = new Float32Array(FN * 3);
+  const frng = mulberry32(seed ^ 0x9e3779b9);
+  const fountainBaseY = waterBaseY + 0.12;
+  const spawn = (i: number) => {
+    const a = frng() * Math.PI * 2;
+    const spread = 0.18 + frng() * 0.18;
+    fpos[i * 3] = Math.cos(a) * 0.06;
+    fpos[i * 3 + 1] = fountainBaseY;
+    fpos[i * 3 + 2] = Math.sin(a) * 0.06;
+    fvel[i * 3] = Math.cos(a) * spread * frng();
+    fvel[i * 3 + 1] = 1.1 + frng() * 0.9;
+    fvel[i * 3 + 2] = Math.sin(a) * spread * frng();
+  };
+  for (let i = 0; i < FN; i++) {
+    spawn(i);
+    // 错开初始高度，避免所有粒子同时起落
+    fpos[i * 3 + 1] = fountainBaseY + frng() * 0.5;
+  }
+  const fgeo = new THREE.BufferGeometry();
+  fgeo.setAttribute('position', new THREE.BufferAttribute(fpos, 3));
+  const fountain = new THREE.Points(
+    fgeo,
+    new THREE.PointsMaterial({
+      color: 0xbfefff,
+      size: 0.07,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    }),
+  );
+  g.add(fountain);
+
+  g.userData.water = water;
+  g.userData.waterBaseY = waterBaseY;
+  g.userData.ripples = ripples;
+  g.userData.fountain = { points: fountain, pos: fpos, vel: fvel, n: FN, baseY: fountainBaseY, spawn };
 
   return g;
 }

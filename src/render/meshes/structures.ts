@@ -20,16 +20,16 @@ export interface StructureMesh {
  * 墙色要带够色相——太淡的话在光照下全都收敛成灰白，看着还是一整片同色。
  */
 const HOUSE_PALETTES: { body: number; roof: number; accent: number }[] = [
-  { body: 0xfff4e2, roof: 0xe0805f, accent: 0x9ed2e8 }, // 奶白 + 珊瑚
-  { body: 0xfbe6b8, roof: 0xc4644a, accent: 0xffe0b0 }, // 奶油黄 + 砖红
-  { body: 0xcfe9db, roof: 0x5b8fa8, accent: 0xffe0b0 }, // 薄荷 + 湖蓝
-  { body: 0xf8cfd8, roof: 0x8f9db0, accent: 0xffd0bc }, // 浅粉 + 灰蓝
-  { body: 0xd8eab2, roof: 0xc09050, accent: 0xa8d8c0 }, // 淡黄绿 + 驼
-  { body: 0xc4dcf0, roof: 0xf2f2ea, accent: 0xb0cfe8 }, // 天蓝 + 白
-  { body: 0xefdcb8, roof: 0x7fa87f, accent: 0xffe0b0 }, // 米黄 + 苔绿
-  { body: 0xdccbe8, roof: 0x9b7fa8, accent: 0xffd0e0 }, // 淡紫 + 紫灰
-  { body: 0xfad9b0, roof: 0xd97b3a, accent: 0xc8e0c0 }, // 杏 + 橙
-  { body: 0xc4e2de, roof: 0x5f9e9c, accent: 0xffe3b0 }, // 青 + 深青
+  { body: 0xfff0e0, roof: 0xff8c69, accent: 0x8fe0f0 }, // 奶白 + 珊瑚
+  { body: 0xffe9a8, roof: 0xff7043, accent: 0xffd28a }, // 奶油黄 + 橙红
+  { body: 0xc8f0d8, roof: 0x4fb0a0, accent: 0xffe0a8 }, // 薄荷 + 湖绿
+  { body: 0xffd6e0, roof: 0x9b8fc8, accent: 0xffb0c8 }, // 浅粉 + 薰衣草
+  { body: 0xe2f3a8, roof: 0xd49a3c, accent: 0xb6e8c8 }, // 黄绿 + 琥珀
+  { body: 0xc4e4ff, roof: 0xe86a6a, accent: 0xcfe6ff }, // 天蓝 + 莓红
+  { body: 0xffe8c4, roof: 0x7fc97f, accent: 0xffd8a8 }, // 蜜桃 + 草绿
+  { body: 0xe6d4f0, roof: 0xb07fd0, accent: 0xffc8ec }, // 丁香 + 紫
+  { body: 0xffd9a8, roof: 0xff7a33, accent: 0xc8ecc0 }, // 杏 + 橙
+  { body: 0xc4f0ea, roof: 0x4fb6b0, accent: 0xffe6a8 }, // 水青 + 湖绿
 ];
 
 /**

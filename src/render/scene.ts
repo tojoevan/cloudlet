@@ -88,7 +88,7 @@ export class SceneView {
     // 换成 MeshStandardMaterial 后不再有「乘暗系数」的副作用，
     // 故整体强度比原先 Lambert 时代调低，避免过曝。
     // 下半球的 groundColor 决定背光面亮度，给足才不会死黑。
-    const hemi = new THREE.HemisphereLight(0xe8f6ff, 0xd2f0c4, 0.85);
+    const hemi = new THREE.HemisphereLight(0xe8f6ff, 0xd2f0c4, 0.98);
     this.scene.add(hemi);
 
     const sun = new THREE.DirectionalLight(0xfff8ec, 1.12);

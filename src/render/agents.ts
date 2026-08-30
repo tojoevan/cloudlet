@@ -14,7 +14,7 @@ const FARM_RADIUS = 2.6;
 /** 厂区工人的活动半径：在自家工厂旁转悠，别跑远 */
 export const WORKER_RADIUS = 1.5;
 
-const SHIRTS = [0xe07a5f, 0x457b9d, 0x6a994e, 0xe9b824, 0x9b8ec4, 0xf4a261];
+const SHIRTS = [0xff7a5c, 0x4f9ddb, 0x6cc24a, 0xffc233, 0xb08ae0, 0xff9a5c];
 const SKINS = [0xf2d0b8, 0xe8b894, 0xd9a273];
 
 interface Person {
@@ -335,10 +335,14 @@ export class Agents {
 
   update(dt: number): void {
     for (const p of this.people) {
-      if (p.pauseFor > 0) {
-        // 站着聊会儿天，避免全员匀速巡逻的机械感
+      const moving = p.pauseFor <= 0;
+      if (!moving) {
+        // 站着聊会儿天：轻微呼吸缩放，避免全员匀速巡逻的机械感
         p.pauseFor -= dt;
-        p.mesh.position.y = 0;
+        p.phase += dt * 2.2;
+        p.mesh.position.set(p.pos.x, 0, p.pos.y);
+        p.mesh.scale.y = 1 + Math.sin(p.phase) * 0.03;
+        p.mesh.rotation.z = 0;
         continue;
       }
 
@@ -356,35 +360,45 @@ export class Agents {
       p.mesh.position.set(p.pos.x, 0, p.pos.y);
       if (p.dir.lengthSq() > 1e-6) p.mesh.rotation.y = Math.atan2(p.dir.x, p.dir.y);
 
+      // 走路：上下小颠 + 左右轻摆，比单纯上下更有生命力
       p.phase += dt * 9;
-      p.mesh.position.y = Math.abs(Math.sin(p.phase)) * 0.028;
+      p.mesh.position.y = Math.sin(p.phase) * 0.03 + 0.015;
+      p.mesh.rotation.z = Math.sin(p.phase) * 0.09;
+      p.mesh.scale.y = 1;
     }
 
     // 农民与厂区工人：都在各自 home 周围巡视打理
     for (const w of [this.farmer, this.lumber, this.ranch]) {
       if (!w) continue;
       const radius = w.radius;
-      if (w.pauseFor > 0) {
+      const moving = w.pauseFor <= 0;
+      if (!moving) {
         w.pauseFor -= dt;
-        w.mesh.position.y = 0;
-      } else {
-        const step = w.speed * dt;
-        w.pos.addScaledVector(w.dir, step);
-
-        if (w.pos.distanceTo(w.target) < 0.16) {
-          this.patrolTarget(w, w.home, radius);
-        } else if (w.pos.distanceTo(w.home) > radius) {
-          // 兜底：别走出活动范围
-          w.target.copy(w.home);
-          this.faceTarget(w);
-        }
-
+        w.phase += dt * 2.2;
         w.mesh.position.set(w.pos.x, 0, w.pos.y);
-        if (w.dir.lengthSq() > 1e-6) w.mesh.rotation.y = Math.atan2(w.dir.x, w.dir.y);
-
-        w.phase += dt * 9;
-        w.mesh.position.y = Math.abs(Math.sin(w.phase)) * 0.028;
+        w.mesh.scale.y = 1 + Math.sin(w.phase) * 0.03;
+        w.mesh.rotation.z = 0;
+        continue;
       }
+      const step = w.speed * dt;
+      w.pos.addScaledVector(w.dir, step);
+
+      if (w.pos.distanceTo(w.target) < 0.16) {
+        this.patrolTarget(w, w.home, radius);
+      } else if (w.pos.distanceTo(w.home) > radius) {
+        // 兜底：别走出活动范围
+        w.target.copy(w.home);
+        this.faceTarget(w);
+      }
+
+      w.mesh.position.set(w.pos.x, 0, w.pos.y);
+      if (w.dir.lengthSq() > 1e-6) w.mesh.rotation.y = Math.atan2(w.dir.x, w.dir.y);
+
+      // 同款走路摆动
+      w.phase += dt * 9;
+      w.mesh.position.y = Math.sin(w.phase) * 0.03 + 0.015;
+      w.mesh.rotation.z = Math.sin(w.phase) * 0.09;
+      w.mesh.scale.y = 1;
     }
   }
 }
