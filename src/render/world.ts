@@ -62,10 +62,11 @@ function factoryPos(i: number): THREE.Vector3 {
 }
 
 export class World {
-  readonly root = new THREE.Group();
-  readonly plotTiles: THREE.Mesh[] = [];
-  readonly pickables: THREE.Object3D[] = [];
+  root = new THREE.Group();
+  plotTiles: THREE.Mesh[] = [];
+  pickables: THREE.Object3D[] = [];
 
+  private scene: THREE.Scene;
   private crops: ({ mesh: CropMesh; crop: string } | null)[] = [];
   private built = new Map<string, THREE.Group>();
   private factories = new Map<string, THREE.Group>();
@@ -77,6 +78,7 @@ export class World {
   private windowLights: THREE.MeshStandardMaterial[] = [];
   private bob = 0;
   private pond: THREE.Group | null = null;
+  private lowSpec = false;
   /** 随风轻摆的对象（树冠、草丛、作物），每帧给一点正弦旋转 */
   private swayers: { obj: THREE.Object3D; phase: number; amp: number; speed: number }[] = [];
 
@@ -86,6 +88,7 @@ export class World {
   private agents = new Agents();
 
   constructor(scene: THREE.Scene) {
+    this.scene = scene;
     scene.add(this.root);
     this.root.add(this.agents.root);
     this.buildTerrain();
@@ -94,6 +97,51 @@ export class World {
     this.hoverRing = makePlotRing(1.0, 0xffffff);
     this.hoverRing.visible = false;
     this.root.add(this.hoverRing);
+  }
+
+  /**
+   * 切换色系时整体重建：释放旧几何体/材质（先摘出常驻居民再 dispose），
+   * 重置所有缓存集合，重建地形与农田，重新按当前存档同步并套用昼夜。
+   * 色系切换是低频操作，一次轻微闪动可以接受。
+   */
+  rebuild(state: GameState, isNight: boolean): void {
+    this.disposeRoot();
+    this.scene.remove(this.root);
+    this.root = new THREE.Group();
+    this.resetCollections();
+    this.scene.add(this.root);
+    this.root.add(this.agents.root);
+    this.buildTerrain();
+    this.buildFarm();
+    this.hoverRing = makePlotRing(1.0, 0xffffff);
+    this.hoverRing.visible = false;
+    this.root.add(this.hoverRing);
+    this.sync(state, Date.now(), this.lowSpec);
+    this.applyTimeOfDay(isNight);
+  }
+
+  private disposeRoot(): void {
+    // 居民是常驻对象，重建时保留：先从 root 摘出，避免被一并 dispose
+    this.root.remove(this.agents.root);
+    this.root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.geometry) m.geometry.dispose();
+      const mat = (m as unknown as { material?: THREE.Material | THREE.Material[] }).material;
+      if (mat) (Array.isArray(mat) ? mat : [mat]).forEach((x) => x.dispose());
+    });
+  }
+
+  private resetCollections(): void {
+    this.crops = [];
+    this.built = new Map();
+    this.factories = new Map();
+    this.bubbles = new Map();
+    this.clouds = [];
+    this.ripeRings = [];
+    this.windowLights = [];
+    this.swayers = [];
+    this.plotTiles = [];
+    this.pickables = [];
   }
 
   private buildTerrain(): void {
@@ -188,6 +236,7 @@ export class World {
 
   /** 结构同步：只在增删时重建，不每帧跑 */
   sync(state: GameState, now: number, lowSpec = false): void {
+    this.lowSpec = lowSpec;
     this.syncCrops(state);
     this.syncBuildings(state);
     this.syncFactories(state);

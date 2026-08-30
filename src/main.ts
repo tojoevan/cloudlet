@@ -35,6 +35,7 @@ import { RECIPE_BY_ID } from './data/factories';
 import { randomLine, randomFarmLine, randomLumberLine, randomRanchLine } from './data/lines';
 import { plotPosition, World } from './render/world';
 import { SceneView } from './render/scene';
+import { setScheme, getSchemeId } from './render/palette';
 import { closeModal, el, floatAt, initUI, toast } from './ui/dom';
 import { ActionBar, HUD, OrderBoard } from './ui/hud';
 import { SpeechBubble } from './ui/speech';
@@ -63,6 +64,13 @@ const audio = new AudioManager();
 const deviceId = getDeviceId();
 let state = loadLocal() ?? createInitialState(deviceId);
 state.deviceId = deviceId;
+
+// 应用存档里保存的色系：world 已在默认（马卡龙）下建好，
+// 若存档选了别的色系就整体重建一次；同时让光照/天空色跟上。
+const builtScheme = getSchemeId();
+setScheme(state.settings.colorScheme);
+view.applyScheme();
+if (getSchemeId() !== builtScheme) world.rebuild(state, isNight());
 
 /** 当前存档归属：登录后用 accountId，否则用设备 UUID。local-first 不受影响。 */
 function syncOwner(): { ownerId: string; token: string | null } {
@@ -199,6 +207,12 @@ function openSettings(): void {
     onQuality: (q) => {
       state.settings.quality = q;
       view.setQuality(q);
+    },
+    onColorScheme: (id) => {
+      state.settings.colorScheme = id;
+      setScheme(id);
+      view.applyScheme();
+      world.rebuild(state, isNight());
     },
     onRotate: () => view.rotateBy(Math.PI / 2),
     onExport: () => exportCode(state),
@@ -645,9 +659,7 @@ setInterval(() => {
   if (n === nightNow) return;
   nightNow = n;
   world.applyTimeOfDay(n);
-  view.scene.background = new THREE.Color(n ? 0x2b3a67 : 0xbde0fe);
-  const fog = view.scene.fog as THREE.Fog | null;
-  if (fog) fog.color.set(n ? 0x2b3a67 : 0xbde0fe);
+  view.setSky(n);
 }, 30_000);
 
 function isNight(): boolean {
@@ -757,6 +769,7 @@ checkAchievements(state);
 dirty = false;
 view.setQuality(state.settings.quality);
 view.setPowerSave(state.settings.powerSave);
+view.setSky(isNight());
 view.resize();
 requestAnimationFrame(frame);
 

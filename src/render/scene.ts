@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PALETTE } from './palette';
+import { getPalette, getScheme } from './palette';
 
 const ISO_PITCH = Math.atan(1 / Math.SQRT2); // 真等距 35.26°
 const MIN_ZOOM = 0.55;
@@ -53,6 +53,9 @@ export class SceneView {
   private targetYaw = Math.PI * 0.25;
   private zoom = 1;
   private sun!: THREE.DirectionalLight;
+  private hemi!: THREE.HemisphereLight;
+  private fill!: THREE.DirectionalLight;
+  private isNight = false;
   private quality: 'low' | 'standard' | 'high' = 'standard';
 
   private drag: { x: number; y: number; mode: 'pan' | 'orbit' } | null = null;
@@ -75,8 +78,9 @@ export class SceneView {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 300);
-    this.scene.background = new THREE.Color(PALETTE.sky);
-    this.scene.fog = new THREE.Fog(PALETTE.sky, 42, 96);
+    // 天空与雾色随色系走，由 setSky 统一设置
+    this.scene.fog = new THREE.Fog(0xffffff, 42, 96);
+    this.setSky(false);
 
     this.setupLights();
     this.bindInput();
@@ -84,14 +88,27 @@ export class SceneView {
     this.updateCamera();
   }
 
-  private setupLights(): void {
-    // 换成 MeshStandardMaterial 后不再有「乘暗系数」的副作用，
-    // 故整体强度比原先 Lambert 时代调低，避免过曝。
-    // 下半球的 groundColor 决定背光面亮度，给足才不会死黑。
-    const hemi = new THREE.HemisphereLight(0xe8f6ff, 0xd2f0c4, 0.98);
-    this.scene.add(hemi);
+  /**
+   * 天空与雾色：白天取 palette.sky、夜间取 palette.skyNight。
+   * 切色系（applyScheme）和昼夜切换都走这里，避免各处硬编码颜色。
+   */
+  setSky(night: boolean): void {
+    this.isNight = night;
+    const p = getPalette();
+    const c = night ? p.skyNight : p.sky;
+    this.scene.background = new THREE.Color(c);
+    if (this.scene.fog) (this.scene.fog as THREE.Fog).color.set(c);
+  }
 
-    const sun = new THREE.DirectionalLight(0xfff8ec, 1.12);
+  private setupLights(): void {
+    // 强度取当前色系的 light 参数：越明亮的色系给越弱的光，避免过曝洗白。
+    const light = getScheme().light;
+    // 下半球的 groundColor 决定背光面亮度，给足才不会死黑。
+    const hemi = new THREE.HemisphereLight(0xeef6ff, 0xd6f0c8, light.hemi);
+    this.scene.add(hemi);
+    this.hemi = hemi;
+
+    const sun = new THREE.DirectionalLight(0xfff8ec, light.sun);
     sun.position.set(9, 16, 7);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
@@ -108,12 +125,22 @@ export class SceneView {
     this.sun = sun;
 
     // 补光压一点阴影，避免背光面死黑
-    const fill = new THREE.DirectionalLight(0xdcefff, 0.4);
+    const fill = new THREE.DirectionalLight(0xdcefff, light.fill);
     fill.position.set(-8, 6, -6);
     this.scene.add(fill);
+    this.fill = fill;
 
     this.scene.userData.sun = sun;
     this.scene.userData.hemi = hemi;
+  }
+
+  /** 切换色系后重设光照强度与天空色（不重建场景几何体） */
+  applyScheme(): void {
+    const light = getScheme().light;
+    if (this.hemi) this.hemi.intensity = light.hemi;
+    if (this.fill) this.fill.intensity = light.fill;
+    if (this.sun) this.sun.intensity = light.sun;
+    this.setSky(this.isNight);
   }
 
   /** 任何手动操作都推迟待机环绕，并退出展示模式（把镜头交还给玩家） */

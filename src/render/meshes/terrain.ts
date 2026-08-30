@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mat, matOwn } from '../mat';
-import { ISLAND_RADIUS, PALETTE } from '../palette';
+import { ISLAND_RADIUS, getPalette } from '../palette';
 import { mulberry32, pick, range } from '../rng';
 
 /** 全部扰动共用一个种子：层与层的交界环才能算出相同偏移 */
@@ -66,7 +66,7 @@ export function makeIsland(seed = 20260829): THREE.Group {
   // 几何体一律先平移到世界坐标再扰动：哈希按「同一个点」匹配偏移
   const top = new THREE.Mesh(
     jitter(new THREE.CylinderGeometry(R, R * 0.97, topH, 16).translate(0, -topH / 2, 0), 0),
-    mat(PALETTE.grass),
+    mat(getPalette().grass),
   );
   top.receiveShadow = true;
   g.add(top);
@@ -78,7 +78,7 @@ export function makeIsland(seed = 20260829): THREE.Group {
       0.5,
       ySoil,
     ),
-    mat(PALETTE.soilDark),
+    mat(getPalette().soilDark),
   );
   g.add(soil);
 
@@ -87,7 +87,7 @@ export function makeIsland(seed = 20260829): THREE.Group {
       new THREE.CylinderGeometry(R * 0.82, R * 0.5, rockH, 16).translate(0, yRock - rockH / 2, 0),
       0.5,
     ),
-    mat(PALETTE.rock),
+    mat(getPalette().rock),
   );
   g.add(rock);
 
@@ -96,7 +96,7 @@ export function makeIsland(seed = 20260829): THREE.Group {
   // 在 z 向镜像（z→-z），段数对齐也对不上，缝就是这么来的。
   const tip = new THREE.Mesh(
     jitter(new THREE.CylinderGeometry(R * 0.5, 0, tipH, 16).translate(0, yTip - tipH / 2, 0), 0.5),
-    mat(PALETTE.rockDark),
+    mat(getPalette().rockDark),
   );
   g.add(tip);
 
@@ -105,7 +105,7 @@ export function makeIsland(seed = 20260829): THREE.Group {
     const a = (i / 7) * Math.PI * 2 + rng() * 0.5;
     const r = R * range(rng, 0.86, 0.94);
     const s = range(rng, 0.18, 0.34);
-    const chunk = new THREE.Mesh(jitter(new THREE.IcosahedronGeometry(s, 0), s * 0.4), mat(PALETTE.rock));
+    const chunk = new THREE.Mesh(jitter(new THREE.IcosahedronGeometry(s, 0), s * 0.4), mat(getPalette().rock));
     chunk.position.set(Math.cos(a) * r, -range(rng, 0.1, 0.45), Math.sin(a) * r);
     chunk.rotation.set(rng() * 3, rng() * 3, rng() * 3);
     g.add(chunk);
@@ -125,7 +125,7 @@ export function makeTree(seed: number, kind?: TreeKind): THREE.Group {
   const trunkH = range(rng, 0.45, 0.7);
   const trunk = new THREE.Mesh(
     new THREE.CylinderGeometry(range(rng, 0.06, 0.09), range(rng, 0.1, 0.14), trunkH, 6),
-    mat(PALETTE.trunk),
+    mat(getPalette().trunk),
   );
   trunk.position.y = trunkH / 2;
   trunk.castShadow = true;
@@ -141,7 +141,7 @@ export function makeTree(seed: number, kind?: TreeKind): THREE.Group {
     let r = range(rng, 0.42, 0.55);
     for (let i = 0; i < 3; i++) {
       const h = range(rng, 0.45, 0.6);
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), mat(i % 2 ? PALETTE.leafDeep : PALETTE.leafGreen));
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), mat(i % 2 ? getPalette().leafDeep : getPalette().leafGreen));
       cone.position.y = y + h / 2;
       cone.castShadow = true;
       foliage.add(cone);
@@ -154,7 +154,7 @@ export function makeTree(seed: number, kind?: TreeKind): THREE.Group {
       const r = range(rng, 0.3, 0.46);
       const blob = new THREE.Mesh(
         jitter(new THREE.IcosahedronGeometry(r, 0), r * 0.18),
-        mat(i % 2 ? PALETTE.leafGreen : PALETTE.leafLight),
+        mat(i % 2 ? getPalette().leafGreen : getPalette().leafLight),
       );
       blob.position.set(range(rng, -0.25, 0.25), trunkH + range(rng, 0.05, 0.4), range(rng, -0.25, 0.25));
       blob.castShadow = true;
@@ -172,7 +172,7 @@ export function makeRock(seed: number): THREE.Group {
   const s = range(rng, 0.16, 0.38);
   const rock = new THREE.Mesh(
     jitter(new THREE.IcosahedronGeometry(s, 0), s * 0.5),
-    mat(rng() > 0.5 ? PALETTE.rock : PALETTE.rockDark),
+    mat(rng() > 0.5 ? getPalette().rock : getPalette().rockDark),
   );
   rock.rotation.set(rng() * 3, rng() * 3, rng() * 3);
   rock.position.y = s * 0.55;
@@ -187,7 +187,7 @@ export function makeGrassTuft(seed: number): THREE.Group {
   const n = 3 + Math.floor(rng() * 3);
   for (let i = 0; i < n; i++) {
     const h = range(rng, 0.14, 0.28);
-    const blade = new THREE.Mesh(new THREE.ConeGeometry(0.05, h, 4), mat(rng() > 0.5 ? PALETTE.grassDark : PALETTE.leafLight));
+    const blade = new THREE.Mesh(new THREE.ConeGeometry(0.05, h, 4), mat(rng() > 0.5 ? getPalette().grassDark : getPalette().leafLight));
     blade.position.set(range(rng, -0.1, 0.1), h / 2, range(rng, -0.1, 0.1));
     blade.rotation.z = range(rng, -0.25, 0.25);
     g.add(blade);
@@ -212,7 +212,7 @@ export function makePond(seed = 13579): THREE.Group {
 
   const bed = new THREE.Mesh(
     new THREE.ExtrudeGeometry(bankShape, { depth: 0.12, bevelEnabled: false, steps: 1 }),
-    mat(PALETTE.soilDark),
+    mat(getPalette().soilDark),
   );
   // ExtrudeGeometry 沿 z 轴挤出，旋转后平铺在 xz 平面
   bed.rotation.x = -Math.PI / 2;
@@ -223,7 +223,7 @@ export function makePond(seed = 13579): THREE.Group {
   // 水：填在环心，半透明蓝，略高于草地
   const water = new THREE.Mesh(
     new THREE.CylinderGeometry(R, R, 0.16, 28),
-    matOwn(PALETTE.water, { transparent: true, opacity: 0.92 }),
+    matOwn(getPalette().water, { transparent: true, opacity: 0.92 }),
   );
   const waterBaseY = 0.06; // 顶面 ≈ +0.14，与土岸顶齐平
   water.position.y = waterBaseY;
@@ -239,7 +239,7 @@ export function makePond(seed = 13579): THREE.Group {
     const r = rng() * (R - 0.4);
     const pad = new THREE.Mesh(
       new THREE.CylinderGeometry(0.18, 0.18, 0.04, 8),
-      mat(PALETTE.leafLight),
+      mat(getPalette().leafLight),
     );
     pad.position.set(Math.cos(a) * r, waterBaseY + 0.08, Math.sin(a) * r);
     g.add(pad);
@@ -317,7 +317,7 @@ export function makeCloud(seed: number): THREE.Group {
     const puff = new THREE.Mesh(
       jitter(new THREE.IcosahedronGeometry(r, 0), r * 0.2),
       new THREE.MeshStandardMaterial({
-        color: PALETTE.cloud,
+        color: getPalette().cloud,
         flatShading: true,
         roughness: 0.92,
         metalness: 0,
@@ -358,7 +358,7 @@ export function makePlot(plotId: number, size = 0.92): THREE.Mesh {
   const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.14, bevelEnabled: false });
   geo.rotateX(-Math.PI / 2); // 厚度从 +Z 转到 +Y，地块平铺在草地上
   geo.translate(0, -0.07, 0); // 让地块一半埋进草面，与原方块一致
-  const tile = new THREE.Mesh(geo, mat(PALETTE.tilled));
+  const tile = new THREE.Mesh(geo, mat(getPalette().tilled));
   tile.userData.plotId = plotId;
   tile.receiveShadow = true;
   return tile;

@@ -3,7 +3,7 @@ import { BUILDINGS } from '../../data/buildings';
 import { FACTORIES } from '../../data/factories';
 import type { BuildingType, FactoryType } from '../../core/types';
 import { mat, matOwn } from '../mat';
-import { PALETTE } from '../palette';
+import { getPalette, getHouses } from '../palette';
 import { mulberry32, range } from '../rng';
 import { makeTree } from './terrain';
 
@@ -16,21 +16,10 @@ export interface StructureMesh {
 }
 
 /**
- * 住宅配色。按 seed 抽一组，所以同一栋永远一个样，整条街却各不相同。
+ * 住宅配色已随色系走，改由 palette.ts 的 getHouses() 提供（见 palette.ts 顶部注释）。
+ * 按 seed 抽一组，所以同一栋永远一个样，整条街却各不相同。
  * 墙色要带够色相——太淡的话在光照下全都收敛成灰白，看着还是一整片同色。
  */
-const HOUSE_PALETTES: { body: number; roof: number; accent: number }[] = [
-  { body: 0xfff0e0, roof: 0xff8c69, accent: 0x8fe0f0 }, // 奶白 + 珊瑚
-  { body: 0xffe9a8, roof: 0xff7043, accent: 0xffd28a }, // 奶油黄 + 橙红
-  { body: 0xc8f0d8, roof: 0x4fb0a0, accent: 0xffe0a8 }, // 薄荷 + 湖绿
-  { body: 0xffd6e0, roof: 0x9b8fc8, accent: 0xffb0c8 }, // 浅粉 + 薰衣草
-  { body: 0xe2f3a8, roof: 0xd49a3c, accent: 0xb6e8c8 }, // 黄绿 + 琥珀
-  { body: 0xc4e4ff, roof: 0xe86a6a, accent: 0xcfe6ff }, // 天蓝 + 莓红
-  { body: 0xffe8c4, roof: 0x7fc97f, accent: 0xffd8a8 }, // 蜜桃 + 草绿
-  { body: 0xe6d4f0, roof: 0xb07fd0, accent: 0xffc8ec }, // 丁香 + 紫
-  { body: 0xffd9a8, roof: 0xff7a33, accent: 0xc8ecc0 }, // 杏 + 橙
-  { body: 0xc4f0ea, roof: 0x4fb6b0, accent: 0xffe6a8 }, // 水青 + 湖绿
-];
 
 /**
  * 四棱锥屋顶，底面对齐 w×d。
@@ -53,8 +42,9 @@ export function makeHouse(
 ): StructureMesh {
   const rng = mulberry32(seed);
   // 没指定配色就按 seed 抽一组——住宅要各色各样，才像住了一条街的人家
+  const houses = getHouses();
   const p =
-    palette ?? HOUSE_PALETTES[Math.floor(rng() * HOUSE_PALETTES.length)] ?? { body: PALETTE.cloud, roof: 0xe07a5f, accent: PALETTE.water };
+    palette ?? houses[Math.floor(rng() * houses.length)] ?? { body: getPalette().cloud, roof: 0xe07a5f, accent: getPalette().water };
   const g = new THREE.Group();
   const lights: THREE.MeshStandardMaterial[] = [];
 
@@ -95,7 +85,7 @@ export function makeHouse(
 
   // 烟囱
   if (rng() > 0.4) {
-    const ch = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.42, 0.16), mat(PALETTE.rockDark));
+    const ch = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.42, 0.16), mat(getPalette().rockDark));
     ch.position.set(w * 0.26, h + rh * 0.55, -d * 0.2);
     g.add(ch);
   }
@@ -177,7 +167,7 @@ export function makeFactory(type: FactoryType, seed: number): StructureMesh {
 }
 
 function decorateLumber(g: THREE.Group, w: number, d: number): void {
-  const logMat = mat(PALETTE.trunk);
+  const logMat = mat(getPalette().trunk);
   const stack = new THREE.Group();
   for (let i = 0; i < 3; i++) {
     const log = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.62, 6), logMat);
@@ -230,7 +220,7 @@ export function makeFountain(seed: number): StructureMesh {
   base.receiveShadow = true;
   g.add(base);
 
-  const water = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.08, 10), mat(PALETTE.water));
+  const water = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.08, 10), mat(getPalette().water));
   water.position.y = 0.24;
   g.add(water);
 
@@ -251,14 +241,14 @@ export function makeFountain(seed: number): StructureMesh {
 export function makeParkBench(seed: number): THREE.Group {
   const rng = mulberry32(seed);
   const g = new THREE.Group();
-  const seat = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.06, 0.22), mat(PALETTE.trunk));
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.06, 0.22), mat(getPalette().trunk));
   seat.position.y = 0.24;
   g.add(seat);
-  const back = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.22, 0.05), mat(PALETTE.trunk));
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.22, 0.05), mat(getPalette().trunk));
   back.position.set(0, 0.38, -0.09);
   g.add(back);
   for (const x of [-0.24, 0.24]) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.24, 0.2), mat(PALETTE.rockDark));
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.24, 0.2), mat(getPalette().rockDark));
     leg.position.set(x, 0.12, 0);
     g.add(leg);
   }

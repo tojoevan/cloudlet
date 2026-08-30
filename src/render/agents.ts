@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mat } from './mat';
+import { getShirts } from './palette';
 import { mulberry32, range } from './rng';
 
 const ISLAND_WALK_RADIUS = 7.6;
@@ -14,7 +15,6 @@ const FARM_RADIUS = 2.6;
 /** 厂区工人的活动半径：在自家工厂旁转悠，别跑远 */
 export const WORKER_RADIUS = 1.5;
 
-const SHIRTS = [0xff7a5c, 0x4f9ddb, 0x6cc24a, 0xffc233, 0xb08ae0, 0xff9a5c];
 const SKINS = [0xf2d0b8, 0xe8b894, 0xd9a273];
 
 interface Person {
@@ -38,7 +38,8 @@ function makePerson(seed: number): THREE.Group {
   const rng = mulberry32(seed);
   const g = new THREE.Group();
 
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.14, 0.26, 6), mat(SHIRTS[Math.floor(rng() * SHIRTS.length)]));
+  const shirts = getShirts();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.14, 0.26, 6), mat(shirts[Math.floor(rng() * shirts.length)]));
   body.position.y = 0.13;
   body.castShadow = true;
   g.add(body);

@@ -7,6 +7,7 @@ import { BUILDINGS, BUILDING_ORDER } from '../data/buildings';
 import { CROPS, CROP_ORDER } from '../data/crops';
 import { FACTORIES, FACTORY_ORDER, PRODUCTS, recipesOf } from '../data/factories';
 import { itemColor } from '../data/items';
+import { SCHEME_LIST } from '../render/palette';
 import * as auth from '../core/auth';
 import { closeModal, el, fmt, fmtDur, fmtMMSS, hex, openModal, toast } from './dom';
 
@@ -302,6 +303,7 @@ export interface SettingsHandlers {
   onVolume: (v: number) => void;
   onPowerSave: (on: boolean) => void;
   onQuality: (q: Settings['quality']) => void;
+  onColorScheme: (id: string) => void;
   onRotate: () => void;
   onExport: () => string;
   onImport: (code: string) => void;
@@ -441,6 +443,24 @@ export function openSettingsPanel(
   });
   qField.appendChild(qSeg);
   body.appendChild(qField);
+
+  // 色系：马卡龙 / 奶油水彩 / 果冻糖果 / 晨雾清新。切了会整体重建场景配色
+  const cField = el('div', 'field');
+  cField.appendChild(el('label', undefined, '色系'));
+  const cSeg = el('div', 'seg');
+  const cBtns: HTMLButtonElement[] = [];
+  for (const sc of SCHEME_LIST) {
+    const b = el('button', `btn sm ${state.settings.colorScheme === sc.id ? 'on' : ''}`.trim(), sc.name);
+    b.addEventListener('click', () => {
+      cBtns.forEach((x) => x.classList.remove('on'));
+      b.classList.add('on');
+      h.onColorScheme(sc.id);
+    });
+    cBtns.push(b);
+    cSeg.appendChild(b);
+  }
+  cField.appendChild(cSeg);
+  body.appendChild(cField);
 
   const row = el('div', 'row');
   const ps = el('button', 'btn ghost', state.settings.powerSave ? '省电模式：开' : '省电模式：关');
