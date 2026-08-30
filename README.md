@@ -1,94 +1,85 @@
 # 云上小镇 Cloudlet
 
-参考《梦想城镇》的 low-poly 清新风休闲放置 Web 游戏。Three.js 等距视角，全部模型程序化生成，零美术资源。非商业，可挂在屏幕一旁当学习陪伴。
+参考《梦想城镇》的 **low-poly 清新风休闲放置 Web 游戏**。Three.js 等距视角，所有模型**程序化生成、零美术资源**。非商业，可挂在屏幕一旁当学习 / 工作陪伴。
 
-## 已实现
+![云上小镇 Cloudlet 游戏画面](snapshot/cloudlet-01.png)
 
-- **核心闭环**：种植 → 加工 → 订单 → 建造 → 等级解锁
-- **放置**：离线结算（4~12 小时上限，随等级提升）、local-first 云同步
-- **爽感**：一键收获/补种、Fever 热潮（连续 5 单收益翻倍）、飘字与音效反馈
-- **长线**：图鉴 16 项（作物/加工品/建筑/工厂）、成就 18 项
-- **陪伴**：番茄钟（25/45 分钟，专注期收益 ×1.5、工厂提速 50%、音乐自动压低）、居民闲逛、30 秒无操作自动环绕镜头、入夜窗户亮灯
-- **音频**：程序化 city pop / lo-fi / ambient 三频道，外加自定义电台 URL
+---
 
-## 还没做
+## 一、游戏介绍（重点）
 
-- 季节活动（每两周轮换，季节限定作物与装饰）
-- 果园岛 / 牧场岛 / 温泉岛 / 云顶（数据结构已就绪，按繁荣度解锁）
-- 装饰自由摆放
+### 这是一款什么游戏
+一座会自己生长的小镇。你播种、看着作物在 low-poly 田野里拔节，把收成送进加工厂，再用产出交付订单、解锁新建筑。节奏舒缓、反馈密集，适合放在副屏挂着，偶尔瞄一眼就有进展。
 
-## 快速开始
+### 画面与表现
+- **程序化 low-poly**：树木、建筑、农田、居民全部由代码生成，仓库不含任何贴图 / 模型文件，克隆即可跑。
+- **等距视角 + 自动运镜**：30 秒无操作镜头自动环绕小镇；入夜后窗户次第亮灯。
+- **飘字与音效反馈**：收获、交付、升级都有即时反馈，不靠数值堆砌爽感。
 
-```bash
-npm install
-npm run dev          # 前端 http://localhost:5173
-npm test             # 核心玩法冒烟测试（104 项）
-npm run build        # 产物在 dist/，纯静态
+### 核心玩法闭环
+> 种植 → 加工 → 订单 → 建造 → 等级解锁
+
+- **种植**：多种作物，按生长时间戳自然成熟，无需手动等待。
+- **加工**：工厂把原料合成更高价值的中间品。
+- **订单**：订单板持续产出，交付换取金币与经验。
+- **建造 / 解锁**：金币与等级驱动小镇扩张，新建筑带来新产能。
+
+### 放置与离线收益
+- **离线结算**：关掉网页也能产出，离线时长 4–12 小时上限（随等级提升）。
+- **local-first 云同步**：进度优先存本地，登录后同步到账号，换设备无缝续玩。
+
+### 爽感设计
+- **一键收获 / 补种**：减少重复操作。
+- **Fever 热潮**：连续完成 5 单，收益翻倍，鼓励连贯游玩。
+- **图鉴长线**：16 项图鉴（作物 / 加工品 / 建筑 / 工厂）+ 18 项成就，提供收集目标。
+
+### 陪伴系统
+- **番茄钟**：25 / 45 分钟专注期，收益 ×1.5、工厂提速 50%、背景音乐自动压低，学习工作两不误。
+- **居民闲逛**：小镇里有会散步的居民，让画面始终「活着」。
+
+### 程序化音频
+- 三频道程序化 BGM：**city pop / lo-fi / ambient**，外加可自定义的电台 URL。
+- 全部用 Web Audio 实时合成，无音频文件依赖。
+
+---
+
+## 二、设计与架构
+
+### 总体架构
+
+```
+浏览器(Three.js 前端)
+   │  /api, /admin  →  Nginx / 宝塔反代
+   ▼
+cloudlet 网关 (server/index.mjs, node:http 零依赖)
+   │  注入 X-Sync-Key + X-User-Id，重写全部请求头
+   ▼
+数据湖租户 /t/cloudlet  (cloudflarepool 通用文档表)
+   ├─ c/saves        玩家存档
+   ├─ c/accounts     账号档案(密码哈希/等级/会员等级)
+   └─ c/usernames    用户名→账号ID 唯一索引
 ```
 
-只玩前端不需要后端——未登录时存档存在浏览器 localStorage（设备 UUID），断网可玩。
+### 为什么必须有一层代理网关
+数据湖本身直连有五个硬伤，网关一次解决：
+- **零 CORS**：浏览器直连 OPTIONS 直接 403；
+- **owner 同质**：一把服务密钥下所有玩家 owner 相同，无法隔离；
+- **限流共享**：写限流 60/分钟按密钥共享，会被单个玩家打满；
+- **没有 upsert**：创建 / 更新需要自己补回退路由；
+- **单条 GET 不校验 owner**：任意玩家可越权读他人存档。
 
-## 账号与会员体系
+走 `X-Sync-Key` 内部通道 + 注入 `X-User-Id` 后，五个问题同时消除，且该通道**豁免限流**。账号 / 密码 / 会话 / JWT 全部由这一层兜底。
 
-登录后进度云同步到**账号**（用户名 + 密码），换设备登录即可继续。两套等级并存：
+### 安全模型
+- **密码**：`pbkdf2` 加盐哈希，**明文不出浏览器**。
+- **会话**：JWT（HMAC-SHA256，零依赖手写）。
+- **双等级校验**：
+  - *游戏等级*（Lv / 经验）客户端计算，存档时由网关做合理性校验——等级不倒退、单次跳跃封顶、经验不超过当前等级容量，挡掉改 localStorage 刷等级的作弊。
+  - *会员等级*（V1–V4）按累计游玩时长自动晋升（1h→V2、4h→V3、12h→V4），管理后台可手动覆盖，**只升不降**。
+- **管理隔离**：后台走独立 `x-admin-token`，与玩家 JWT 完全隔离。
+- **网关安全红线**：`INTERNAL_KEY` 是数据湖最高权限密钥（无 scope、豁免限流、可读写任意租户），因此只存在于网关进程环境变量、绝不进前端产物；网关重新构造全部请求头不透传客户端任何头；只允许访问 `/t/cloudlet/c/{saves,accounts,usernames}/` 前缀；设备模式设备 ID 必须是 UUID v4；payload 上限 200KB。
 
-- **游戏等级**（Lv / 经验）：客户端计算，存档时由网关做**合理性校验**（等级不倒退、单次跳跃封顶、经验不超过当前等级容量），挡掉本地改 localStorage 刷等级的作弊。
-- **会员等级**（V1–V4）：按累计游玩时长自动晋升（1h→V2、4h→V3、12h→V4），管理后台可手动覆盖，只升不降。
-
-登录态用 **JWT**（HMAC-SHA256，零依赖手写）。密码用 **pbkdf2** 加盐哈希，明文不出浏览器。管理后台走独立的 `x-admin-token`，与玩家 JWT 完全隔离。
-
-## 后端：嫁接 cloudflarepool 数据湖
-
-复用 cloudflarepool 的通用文档表，落在三个集合：
-
-- `/t/cloudlet/c/saves` —— 玩家存档（owner = 设备 UUID 或账号 ID）
-- `/t/cloudlet/c/accounts` —— 账号档案（密码哈希、等级、会员等级）
-- `/t/cloudlet/c/usernames` —— 用户名 → 账号 ID 的唯一索引
-
-**为什么必须有一层代理**：数据湖零 CORS（OPTIONS 直接 403）、一把服务密钥下所有玩家 owner 相同、写限流 60/分钟按密钥共享、没有 upsert、单条 GET 不校验 owner。走 `X-Sync-Key` 内部通道 + 注入 `X-User-Id`，五个问题一次解决，且该通道豁免限流。账号/密码/会话/JWT 全部由这一层兜底。
-
-```bash
-# 1. 在数据湖登记 app 与租户（幂等，只需一次）
-export INTERNAL_KEY=<cloudflarepool 的 INTERNAL_KEY>
-npm run init:tenant
-
-# 2. 起网关（内存模式可零依赖本地联调，无需真实数据湖）
-LAKE_BASE=memory://test JWT_SECRET=dev ADMIN_TOKEN=dev npm run server   # 127.0.0.1:8787
-curl "http://127.0.0.1:8787/api/health"
-```
-
-`vite.config.ts` 已把 `/api` 与 `/admin` 代理到 8787，所以 `npm run dev` 下云同步与管理后台直接可用。
-
-### 网关的安全红线
-
-`INTERNAL_KEY` 是数据湖最高权限密钥（无 scope 约束、豁免限流、可读写任意租户）。因此：
-
-- 只存在于网关进程的环境变量，绝不进前端产物
-- 网关重新构造全部请求头，不透传客户端任何头
-- 只允许访问 `/t/cloudlet/c/{saves,accounts,usernames}/` 前缀，不是通用网关
-- 账号模式下 owner 直接取自 JWT，客户端不可伪造；设备模式设备 ID 必须是 UUID v4
-- payload 上限 200KB；管理令牌与玩家令牌体系隔离
-
-## 部署（无 Docker，裸机 + 宝塔反代，对齐微家事架构）
-
-前端静态产物放在宝塔站点根目录，网关作为 pm2 常驻进程监听 `127.0.0.1:8787`，宝塔反向代理把 `/api` 与 `/admin` 指过去，二者同机同源。
-
-**数据湖连接二选一**（详见 `deploy/.env.example`）：
-- **路A（推荐）直接对接微家事网关 T4 数据层**：在 `your-gateway.example.com/admin` 的「密钥」里签发一个 `data:read`+`data:write` 作用域的密钥，把 `raw_secret` 填进 `T4_KEY`，`T4_BASE` 默认即微家事网关。cloudlet 复用和微家事同一套数据湖、独立 `cloudlet_*` 表、用户隔离。
-- **路B 原始 cloudflarepool**：填 `INTERNAL_KEY`（X-Sync-Key），`LAKE_BASE` 指向数据湖原始地址。
-
-```bash
-# 部署到 VPS（静态 → /www/wwwroot/cloudlet，网关 → /opt/cloudlet-api）
-export VPS=user@your-server
-export JWT_SECRET=$(openssl rand -hex 32) ADMIN_TOKEN=$(openssl rand -hex 16)
-export T4_KEY=<微家事后台签发的 data 作用域密钥 raw_secret>   # 路A
-# 或：export INTERNAL_KEY=<原始数据湖 X-Sync-Key>              # 路B
-bash deploy/deploy.sh
-```
-
-部署后：站点根路径为游戏，管理后台在 `/admin`（用 `ADMIN_TOKEN` 进入）。网关用 `deploy/start.sh` 包装脚本加载 `.env` 后常驻（pm2 守护进程不继承交互 shell 的环境变量，故不能靠 `source .env && pm2 start`）。
-
-## 结构
+### 目录结构与全局约定
 
 ```
 src/
@@ -97,13 +88,79 @@ src/
   render/      Three.js 层：等距相机、程序化几何体、世界同步
   audio/       Web Audio 程序化 BGM（city pop / lo-fi / ambient）+ 外接电台
   ui/          HTML overlay：HUD、订单板、弹窗、飘字
-server/        网关（node:http，零依赖）：云存档代理 + 账号 + 双等级校验 + 管理后台 + /admin 静态页
+server/        网关（node:http 零依赖）：云存档代理 + 账号 + 双等级校验 + 管理后台 + /admin 静态页
 deploy/        pm2 配置(ecosystem/start.sh)、.env 示例、nginx 反代示例、初始化与部署脚本
 test/          核心玩法冒烟测试
 ```
 
 三条贯穿全局的约定：
+1. **时间用绝对时间戳**（`readyAt`），不用累加计数——离线结算因此天然成立。
+2. **逻辑与渲染分离**——`core/` 可在 Node 跑测试，离线结算不需要渲染参与。
+3. **外观由种子决定**——存档只存 `seed`，同一颗种子永远长成同一棵树。
 
-1. **时间用绝对时间戳**（`readyAt`），不用累加计数——离线结算因此天然成立
-2. **逻辑与渲染分离**——`core/` 可以在 Node 里跑测试，离线结算不需要渲染参与
-3. **外观由种子决定**——存档只存 `seed`，同一颗种子永远长成同一棵树
+---
+
+## 三、安装与部署
+
+### 环境要求
+- Node.js 18+
+- 部署到 VPS 时可选：pm2（进程守护）、Nginx / 宝塔（反向代理）
+- 数据湖二选一：① 微家事网关 T4 数据层（推荐）；② 原始 cloudflarepool（X-Sync-Key）
+
+### 本地开发（零后端也能玩）
+```bash
+npm install
+npm run dev          # 前端 http://localhost:5173
+npm test             # 核心玩法冒烟测试
+npm run build        # 产物在 dist/，纯静态
+```
+未登录时存档存在浏览器 `localStorage`（设备 UUID），**断网可玩**。
+
+`vite.config.ts` 已把 `/api` 与 `/admin` 代理到 `127.0.0.1:8787`，所以 `npm run dev` 下云同步与管理后台直接可用。本地联调可起内存模式网关：
+```bash
+LAKE_BASE=memory://test JWT_SECRET=dev ADMIN_TOKEN=dev npm run server   # 127.0.0.1:8787
+curl "http://127.0.0.1:8787/api/health"
+```
+
+### 配置
+复制示例并填入你自己的值（**`.env.example` 中所有值均为占位，不会泄露**）：
+```bash
+cp deploy/.env.example deploy/.env
+```
+数据湖连接二选一（详见 `deploy/.env.example`）：
+- **路A（推荐）直接对接微家事网关 T4 数据层**：在 `your-gateway.example.com/admin` 的「密钥」里签发一个 `data:read`+`data:write` 作用域的密钥，把 `raw_secret` 填进 `T4_KEY`，`T4_BASE` 默认即微家事网关。cloudlet 复用同一套数据湖、独立 `cloudlet_*` 表、用户隔离。
+- **路B 原始 cloudflarepool**：填 `INTERNAL_KEY`（X-Sync-Key），`LAKE_BASE` 指向数据湖原始地址。
+
+首次部署需先登记租户（幂等，只需一次）：
+```bash
+export INTERNAL_KEY=<cloudflarepool 的 INTERNAL_KEY>
+npm run init:tenant
+```
+
+### 部署到 VPS（裸机 + 宝塔反代，无 Docker）
+前端静态产物放宝塔站点根目录；网关作为 pm2 常驻进程监听 `127.0.0.1:8787`，宝塔反代把 `/api` 与 `/admin` 指过去，二者同机同源。
+```bash
+export VPS=user@<YOUR_SERVER_IP>
+export JWT_SECRET=$(openssl rand -hex 32) ADMIN_TOKEN=$(openssl rand -hex 16)
+export T4_KEY=<微家事后台签发的 data 作用域密钥 raw_secret>   # 路A
+# 或：export INTERNAL_KEY=<原始数据湖 X-Sync-Key>              # 路B
+bash deploy/deploy.sh
+```
+部署后：站点根路径为游戏，管理后台在 `/admin`（用 `ADMIN_TOKEN` 进入）。网关用 `deploy/start.sh` 包装脚本加载 `.env` 后常驻（pm2 守护进程不继承交互 shell 的环境变量，故不能靠 `source .env && pm2 start`）。
+
+### 管理后台
+`/admin` 提供：玩家存档查看、等级 / 会员等级手动覆盖、密钥管理等。访问需 `ADMIN_TOKEN`。
+
+---
+
+## 路线图
+
+- [ ] 季节活动（每两周轮换，季节限定作物与装饰）
+- [ ] 果园岛 / 牧场岛 / 温泉岛 / 云顶（数据结构已就绪，按繁荣度解锁）
+- [ ] 装饰自由摆放
+
+---
+
+## 许可证
+
+[MIT](LICENSE) © 2026 joevan
