@@ -317,6 +317,27 @@ export class Agents {
     p.dir.copy(d).normalize();
   }
 
+  /**
+   * 每帧把候选落点推出农田/水池禁区。这样即使「当前点→目标点」的连线
+   * 穿过水池，小人也只会沿水塘边缘绕行，而不会笔直穿过去。
+   */
+  private pushOut(pos: THREE.Vector2): void {
+    const df = pos.clone().sub(FARM);
+    const dl = df.length();
+    if (dl < FARM_KEEPOUT) {
+      if (dl < 1e-6) df.set(1, 0);
+      else df.setLength(FARM_KEEPOUT + 0.02);
+      pos.copy(FARM).add(df);
+    }
+    const dp = pos.clone().sub(POND);
+    const pl = dp.length();
+    if (pl < POND_KEEPOUT) {
+      if (pl < 1e-6) dp.set(1, 0);
+      else dp.setLength(POND_KEEPOUT + 0.02);
+      pos.copy(POND).add(dp);
+    }
+  }
+
   /** 在给定中心周围巡逻打理：大部分时候走到外围，偶尔去中心转一圈 */
   private patrolTarget(p: Person, center: THREE.Vector2, radius: number): void {
     const rng = Math.random;
@@ -349,6 +370,7 @@ export class Agents {
 
       const step = p.speed * dt;
       p.pos.addScaledVector(p.dir, step);
+      this.pushOut(p.pos);
 
       if (p.pos.distanceTo(p.target) < 0.16) {
         this.newTarget(p);
@@ -383,6 +405,7 @@ export class Agents {
       }
       const step = w.speed * dt;
       w.pos.addScaledVector(w.dir, step);
+      this.pushOut(w.pos);
 
       if (w.pos.distanceTo(w.target) < 0.16) {
         this.patrolTarget(w, w.home, radius);

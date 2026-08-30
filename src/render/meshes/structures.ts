@@ -260,16 +260,20 @@ export function makeBuilding(type: BuildingType, seed: number): StructureMesh {
   const def = BUILDINGS[type];
   if (type === 'fountain') return makeFountain(seed);
   if (type === 'park') {
-    const rng = mulberry32(seed);
     const g = new THREE.Group();
     const lawn = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.95, 0.12, 10), mat(def.body));
     lawn.position.y = 0.06;
     lawn.receiveShadow = true;
     g.add(lawn);
     g.add(makeParkBench(seed + 1));
+    // 两棵树放在对角、远离中央长椅，避免遮挡座位
+    const treeSpots: Array<[number, number]> = [
+      [-0.52, 0.42],
+      [0.52, -0.42],
+    ];
     for (let i = 0; i < 2; i++) {
       const t = makeTree(seed + 20 + i, i % 2 ? 'broadleaf' : 'pine');
-      t.position.set(range(rng, -0.55, 0.55), 0.1, range(rng, -0.55, 0.55));
+      t.position.set(treeSpots[i][0], 0.1, treeSpots[i][1]);
       t.scale.multiplyScalar(0.8);
       g.add(t);
     }

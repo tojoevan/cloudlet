@@ -61,15 +61,20 @@ export function harvestAll(
   let total = 0;
   let plots = 0;
 
-  for (const plot of state.plots) {
-    if (!plot.crop || plot.readyAt > now) continue;
+  // 先确认有成熟的地块，否则「仓库满」会被误报成「没成熟」
+  const mature = state.plots.filter((p) => p.crop && p.readyAt <= now);
+  if (mature.length === 0) return fail('还没有作物成熟');
+  if (roomFor(state, 1) <= 0) return fail('仓库满了，先交付订单');
+
+  for (const plot of mature) {
     const room = roomFor(state, HARVEST_YIELD);
     if (room <= 0) break;
-    const crop = plot.crop;
-    addItem(state, crop, room);
+    const crop = plot.crop!;
+    const got = addItem(state, crop, room);
+    if (got <= 0) break;
     recordCrop(state, crop);
-    kinds[crop] = (kinds[crop] ?? 0) + room;
-    total += room;
+    kinds[crop] = (kinds[crop] ?? 0) + got;
+    total += got;
     plots += 1;
     state.stats.harvests += 1;
     plot.crop = null;
@@ -77,7 +82,7 @@ export function harvestAll(
     plot.readyAt = 0;
   }
 
-  if (plots === 0) return fail('还没有作物成熟');
+  if (plots === 0) return fail('仓库满了，先交付订单');
   return { ok: true, data: { total, kinds, plots } };
 }
 
