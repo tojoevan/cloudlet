@@ -83,6 +83,8 @@ export interface FocusState {
   harvested: number;
   planted: number;
   produced: number;
+  /** 本次专注里自动放下/升级的建造处数 */
+  placed: number;
 }
 
 /** 收集图鉴。记录见过的东西，是长线时长的主要抓手。 */

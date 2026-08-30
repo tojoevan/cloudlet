@@ -14,6 +14,7 @@ import {
   makePlotRing,
   makePond,
   makeRock,
+  makeTerrace,
   makeTree,
 } from './meshes/terrain';
 import { ISLAND_RADIUS } from './palette';
@@ -69,6 +70,8 @@ export class World {
   private scene: THREE.Scene;
   private crops: ({ mesh: CropMesh; crop: string } | null)[] = [];
   private built = new Map<string, THREE.Group>();
+  /** 悬空建筑脚下的局部地基（小平台），与 built 一一对应 */
+  private terraces = new Map<string, THREE.Group>();
   private factories = new Map<string, THREE.Group>();
   /** 工厂头顶的运转气泡，与工厂一一对应 */
   private bubbles = new Map<string, Bubbles>();
@@ -134,6 +137,7 @@ export class World {
   private resetCollections(): void {
     this.crops = [];
     this.built = new Map();
+    this.terraces = new Map();
     this.factories = new Map();
     this.bubbles = new Map();
     this.clouds = [];
@@ -295,7 +299,8 @@ export class World {
       seen.add(b.id);
       if (this.built.has(b.id)) return;
       const { group, lights } = makeBuilding(b.type, b.seed);
-      group.position.copy(buildingPos(i));
+      const pos = buildingPos(i);
+      group.position.copy(pos);
       // 面朝岛心
       group.lookAt(0, group.position.y, 0);
       group.rotation.x = 0;
@@ -303,12 +308,27 @@ export class World {
       this.root.add(group);
       this.built.set(b.id, group);
       this.windowLights.push(...lights);
+
+      // 局部扩大：建筑被排到岛缘之外时，脚下补一块地基，避免悬空
+      const d = Math.hypot(pos.x, pos.z);
+      if (d > ISLAND_RADIUS - 1.1) {
+        const terrace = makeTerrace(b.seed + 7);
+        // 整体下沉 0.04：重叠环带交给主岛草皮（在其上方）覆盖，平台只在岛缘外露出，避免 z-fighting 闪烁
+        terrace.position.set(pos.x, -0.04, pos.z);
+        this.root.add(terrace);
+        this.terraces.set(b.id, terrace);
+      }
     });
 
     for (const [id, group] of this.built) {
       if (seen.has(id)) continue;
       this.root.remove(group);
       this.built.delete(id);
+      const terrace = this.terraces.get(id);
+      if (terrace) {
+        this.root.remove(terrace);
+        this.terraces.delete(id);
+      }
     }
   }
 

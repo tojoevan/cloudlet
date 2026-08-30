@@ -42,7 +42,7 @@ const MIGRATIONS: Record<number, (s: any) => any> = {
   1: (s) => ({
     ...s,
     version: 2,
-    focus: s.focus ?? { until: 0, startedAt: 0, totalMs: 0 },
+    focus: s.focus ?? { until: 0, startedAt: 0, totalMs: 0, harvested: 0, planted: 0, produced: 0, placed: 0 },
     codex: {
       crops: s.codex?.crops ?? [],
       products: s.codex?.products ?? [],
@@ -91,6 +91,7 @@ function normalize(s: GameState): GameState {
   s.settings.colorScheme ??= 'macaron';
   s.settings.channel ??= 'citypop';
   s.settings.volume ??= 0.6;
+  s.focus.placed ??= 0;
   return s;
 }
 

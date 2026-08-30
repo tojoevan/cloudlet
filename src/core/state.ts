@@ -32,7 +32,7 @@ export function createInitialState(deviceId: string): GameState {
     combo: 0,
     comboUntil: 0,
     lastCrop: null,
-    focus: { until: 0, startedAt: 0, totalMs: 0, harvested: 0, planted: 0, produced: 0 },
+    focus: { until: 0, startedAt: 0, totalMs: 0, harvested: 0, planted: 0, produced: 0, placed: 0 },
     codex: { crops: [], products: [], buildings: [], factories: [] },
     achievements: [],
   };

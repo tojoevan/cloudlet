@@ -539,7 +539,7 @@ export function openFocusPanel(
       el(
         'p',
         'note',
-        `专注期间收益 ×1.5、工厂提速 50%，田里自动收种、工厂自动开工，音乐会自动安静下来。中途放弃按已完成分钟折半结算。\n已自动收了 ${state.focus.harvested} 块地、产出 ${state.focus.produced} 批货。`,
+        `专注期间收益 ×1.5、工厂提速 50%，田里自动收种、工厂自动开工，音乐会自动安静下来。中途放弃按已完成分钟折半结算。\n已自动收了 ${state.focus.harvested} 块地、产出 ${state.focus.produced} 批货、放下 ${state.focus.placed} 处建造。`,
       ),
     );
     openModal('番茄钟', '放下手机，去做点正事', body);
@@ -568,7 +568,7 @@ export function openFocusPanel(
     el(
       'p',
       'note',
-      `专注期间：订单收益 ×1.5、工厂提速 50% 并自动开工，${farmHint}，与热潮可叠加。专注果实能立刻完成一次工厂生产。\n已完成 ${state.stats.focusSessions} 次，累计 ${state.stats.focusMinutes} 分钟。`,
+      `专注期间：订单收益 ×1.5、工厂提速 50% 并自动开工，${farmHint}；小镇还会自动发货、自动建造升级、仓库满分批出售，与热潮可叠加。专注果实能立刻完成一次工厂生产。\n已完成 ${state.stats.focusSessions} 次，累计 ${state.stats.focusMinutes} 分钟。\n（连续 5 分钟不操作，会自动进入 25 分钟专注）`,
     ),
   );
   openModal('番茄钟', '选一段时间，把小镇挂在旁边', body);

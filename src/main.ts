@@ -26,6 +26,7 @@ import {
 import * as auth from './core/auth';
 import { addItem, itemName } from './core/economy';
 import { cancelFocus, focusProgress, isFocusing, settleFocus, startFocus } from './core/focus';
+import { autoFocusStep } from './core/autoplay';
 import { deliver } from './core/orders';
 import { exportCode, getDeviceId, importCode, loadLocal, saveLocal } from './core/save';
 import { advance, tick } from './core/simulation';
@@ -175,6 +176,7 @@ const bar = new ActionBar({
         const parts: string[] = [];
         if (r.harvested > 0) parts.push(`收了 ${r.harvested} 块地`);
         if (r.produced > 0) parts.push(`产出 ${r.produced} 批货`);
+        if (r.placed > 0) parts.push(`放下 ${r.placed} 处建造`);
         const work = parts.length > 0 ? `，${parts.join('、')}` : '';
         toast(
           r.minutes > 0 ? `已专注 ${r.minutes} 分钟，得 ${r.gems} 颗果实${work}` : '放弃了这次专注',
@@ -671,6 +673,16 @@ function isNight(): boolean {
 let last = performance.now();
 let feverOn = false;
 let focusOn = false;
+/** 最近一次玩家操作时刻；超过 5 分钟无操作则自动进入 25 分钟专注 */
+let lastActivity = Date.now();
+function bumpActivity(): void {
+  lastActivity = Date.now();
+}
+window.addEventListener('pointerdown', bumpActivity);
+window.addEventListener('keydown', bumpActivity);
+window.addEventListener('wheel', bumpActivity, { passive: true });
+/** 自动经营步进的节流点：专注中每约 1 秒跑一次，别每秒 60 次空转 */
+let autoStepAt = 0;
 
 function frame(t: number): void {
   const dt = Math.min(0.05, (t - last) / 1000);
@@ -692,6 +704,12 @@ function frame(t: number): void {
   }
 
   const lowSpec = view.isPowerSave;
+
+  // 5 分钟无操作 → 自动进入 25 分钟专注（用户要求：自动只进 25 分钟这一档）
+  if (!isFocusing(state, now) && now - lastActivity > 5 * 60_000) {
+    startFocus(state, 25, now);
+    toast('专注模式已自动开启（25 分钟）');
+  }
   if (dirty) {
     world.sync(state, now, lowSpec);
     // 新建筑也要跟上当前昼夜，否则夜间建的房窗户不亮
@@ -723,7 +741,11 @@ function frame(t: number): void {
     // 进入专注即把镜头切到最佳缩放并缓缓自转（当动态壁纸陪伴）；
     // 退出专注（取消或自然完成）则交还控制权
     if (focusing) view.startShowcase();
-    else view.stopShowcase();
+    else {
+      view.stopShowcase();
+      // 退出专注后重新计 5 分钟无操作，避免一退出就又被自动拉进专注
+      lastActivity = Date.now();
+    }
     hud.el.classList.toggle('focusing', focusing);
     // 专注模式：默认隐藏按钮栏与发货列表，沉浸看岛；退出则恢复常显
     uiRoot.classList.toggle('focus-ui-hidden', focusing);
@@ -737,6 +759,13 @@ function frame(t: number): void {
     const mm = Math.floor(s / 60);
     const ss = String(s % 60).padStart(2, '0');
     focusLabel.textContent = `专注中 · 剩 ${mm}:${ss} · 点我回到最佳视角`;
+
+    // 专注自动经营：满足发货要求就自动发货、自动建造/升级、仓库满分批卖
+    if (now - autoStepAt > 1000) {
+      autoStepAt = now;
+      autoFocusStep(state, now);
+      markDirty();
+    }
   } else {
     focusBar.style.display = 'none';
   }
@@ -746,6 +775,7 @@ function frame(t: number): void {
     const parts: string[] = [];
     if (reward.harvested > 0) parts.push(`收了 ${reward.harvested} 块地`);
     if (reward.produced > 0) parts.push(`产出 ${reward.produced} 批货`);
+    if (reward.placed > 0) parts.push(`放下 ${reward.placed} 处建造`);
     const work = parts.length > 0 ? `，${parts.join('、')}` : '';
     toast(`专注完成 · ${reward.minutes} 分钟，得 ${reward.gems} 颗果实${work}`);
     markDirty();
