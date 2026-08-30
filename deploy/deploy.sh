@@ -8,14 +8,14 @@
 #
 # 用法：
 #   # 路C（推荐）：
-#   VPS=user@1.2.3.4 GATEWAY_KEY='-----BEGIN PRIVATE KEY-----...' JWT_SECRET=... ADMIN_TOKEN=... ./deploy/deploy.sh
+#   VPS=user@<YOUR_SERVER_IP> GATEWAY_KEY='<GATEWAY_PRIVATE_KEY>' JWT_SECRET=... ADMIN_TOKEN=... ./deploy/deploy.sh
 #   # 或路B 直连：
-#   VPS=user@1.2.3.4 INTERNAL_KEY=... JWT_SECRET=... ADMIN_TOKEN=... ./deploy/deploy.sh
+#   VPS=user@<YOUR_SERVER_IP> INTERNAL_KEY=... JWT_SECRET=... ADMIN_TOKEN=... ./deploy/deploy.sh
 #
 # 依赖：node >= 18（网关零依赖）、pm2（已装在 VPS 上）
 set -euo pipefail
 
-: "${VPS:?请设置 VPS，例如 user@1.2.3.4}"
+: "${VPS:?请设置 VPS，例如 user@<YOUR_SERVER_IP>}"
 : "${JWT_SECRET:?请设置 JWT_SECRET（openssl rand -hex 32）}"
 : "${ADMIN_TOKEN:?请设置 ADMIN_TOKEN（openssl rand -hex 16，管理后台登录令牌）}"
 # 数据湖凭证：路C(GATEWAY_KEY) / 路A(T4_KEY) / 路B(INTERNAL_KEY) 至少其一
