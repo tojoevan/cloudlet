@@ -6,7 +6,6 @@ import { mulberry32, range } from './rng';
 const ISLAND_WALK_RADIUS = 7.6;
 /** 农田中心，小人绕着走，别踩进地里 */
 const FARM = new THREE.Vector2(-3.4, 3.3);
-const FARM_KEEPOUT = 2.9;
 // 与 world.ts 的 POND 保持一致，让居民绕开水塘
 const POND = new THREE.Vector2(2.0, 2.5);
 const POND_KEEPOUT = 1.8;
@@ -297,8 +296,7 @@ export class Agents {
       const r = range(rng, 1.6, ISLAND_WALK_RADIUS);
       const x = Math.cos(a) * r;
       const z = Math.sin(a) * r;
-      // 别走进农田，也别走到岛外；也绕开池塘
-      if (Math.hypot(x - FARM.x, z - FARM.y) < FARM_KEEPOUT) continue;
+      // 农田可自由进入（农民要进去打理）；只绕开水池，别走到岛外
       if (Math.hypot(x - POND.x, z - POND.y) < POND_KEEPOUT) continue;
       p.target.set(x, z);
       p.speed = range(rng, 0.35, 0.75);
@@ -318,17 +316,11 @@ export class Agents {
   }
 
   /**
-   * 每帧把候选落点推出农田/水池禁区。这样即使「当前点→目标点」的连线
+   * 每帧把候选落点推出水池禁区。这样即使「当前点→目标点」的连线
    * 穿过水池，小人也只会沿水塘边缘绕行，而不会笔直穿过去。
+   * 农田不阻挡，农民需要进去打理。
    */
   private pushOut(pos: THREE.Vector2): void {
-    const df = pos.clone().sub(FARM);
-    const dl = df.length();
-    if (dl < FARM_KEEPOUT) {
-      if (dl < 1e-6) df.set(1, 0);
-      else df.setLength(FARM_KEEPOUT + 0.02);
-      pos.copy(FARM).add(df);
-    }
     const dp = pos.clone().sub(POND);
     const pl = dp.length();
     if (pl < POND_KEEPOUT) {
