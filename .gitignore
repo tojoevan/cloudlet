@@ -6,3 +6,6 @@ dist/
 *.log
 .DS_Store
 .workbuddy/
+
+# 内部过程资产：含真实部署拓扑（VPS IP、内网域名、账号 ID），不入公开仓库
+docs/sync-incident-and-redesign.md
