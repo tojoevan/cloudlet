@@ -286,9 +286,10 @@ export function makeBuilding(
   w = 1,
   h = 1,
   fit = false,
+  roadMask = -1,
 ): StructureMesh {
   const def = BUILDINGS[type];
-  if (type === 'road') return makeRoad(seed);
+  if (type === 'road') return makeRoad(seed, roadMask);
   if (type === 'fountain') {
     const r = makeFountain(seed);
     r.group.scale.setScalar(1 + (level - 1) * 0.12);
@@ -331,25 +332,69 @@ export function makeBuilding(
   return base;
 }
 
-/** 道路：低于草面一线的石砖板，可 1×1 拼接成路网。居民会沿路散步。 */
-export function makeRoad(seed: number): StructureMesh {
-  const rng = mulberry32(seed);
+/**
+ * 道路：按网格邻接自动拼接(autotile)。
+ * mask 是 4 个方向位（N=1 E=2 S=4 W=8，对应 gz-1/gx+1/gz+1/gx-1）。
+ *  - 4 连 → 十字路口；3 连 → 丁字路口；2 对连 → 直路；2 邻连 → 左/右拐弯；1 连 → 末端。
+ * 每段向连通方向伸出「臂」到格边，与邻段在边界处严丝合缝，保证整张路网连续。
+ * mask<0（圆岛/预览占位）走传统单砖渲染。
+ */
+const ROAD_DIRS = [
+  { bit: 1, dx: 0, dz: -1 }, // N  (-z)
+  { bit: 2, dx: 1, dz: 0 }, //  E  (+x)
+  { bit: 4, dx: 0, dz: 1 }, //  S  (+z)
+  { bit: 8, dx: -1, dz: 0 }, // W  (-x)
+];
+export function makeRoad(seed: number, mask = -1): StructureMesh {
   const g = new THREE.Group();
-  const tile = new THREE.Mesh(
-    new THREE.BoxGeometry(CELL * 0.94, 0.08, CELL * 0.94),
-    mat(getPalette().rockDark),
-  );
-  tile.position.y = 0.05;
-  tile.receiveShadow = true;
-  g.add(tile);
-  // 中央一条浅色分道线，强化「路」的辨识
-  const line = new THREE.Mesh(
-    new THREE.BoxGeometry(CELL * 0.94, 0.02, 0.08),
-    mat(getPalette().cloud),
-  );
-  line.position.y = 0.1;
-  g.add(line);
+  void seed;
+  // 传统单砖：圆岛（极坐标散布、无网格拼接）或建造预览占位
+  if (mask < 0) {
+    const tile = new THREE.Mesh(
+      new THREE.BoxGeometry(CELL * 0.94, 0.08, CELL * 0.94),
+      mat(getPalette().rockDark),
+    );
+    tile.position.y = 0.05;
+    tile.receiveShadow = true;
+    g.add(tile);
+    const line = new THREE.Mesh(
+      new THREE.BoxGeometry(CELL * 0.94, 0.02, 0.08),
+      mat(getPalette().cloud),
+    );
+    line.position.y = 0.1;
+    g.add(line);
+    g.userData.lights = [];
+    return { group: g, lights: [] };
+  }
+
+  const rw = CELL * 0.3; // 半幅：路宽 0.6 格，留草边
+  const H = 0.07;
+  const surf = mat(getPalette().road);
+  const lineMat = mat(getPalette().cloud);
+
+  // 中心岛：十字/T/拐弯的交汇处都靠它填满
+  const pad = new THREE.Mesh(new THREE.BoxGeometry(rw * 2, H, rw * 2), surf);
+  pad.position.y = 0.05;
+  pad.receiveShadow = true;
+  g.add(pad);
+
+  const along = CELL * 0.5; // 臂长：从中心伸到格边，与邻段在边界相接
+  const lw = 0.07; // 中线宽
+  for (const d of ROAD_DIRS) {
+    if (!(mask & d.bit)) continue;
+    const sx = d.dx !== 0 ? along : rw * 2;
+    const sz = d.dz !== 0 ? along : rw * 2;
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(sx, H, sz), surf);
+    arm.position.set((d.dx * CELL) / 4, 0.05, (d.dz * CELL) / 4);
+    arm.receiveShadow = true;
+    g.add(arm);
+    // 中线：沿臂方向，使直路成线、拐弯成 L、路口汇聚
+    const lx = d.dx !== 0 ? along : lw;
+    const lz = d.dz !== 0 ? along : lw;
+    const line = new THREE.Mesh(new THREE.BoxGeometry(lx, 0.02, lz), lineMat);
+    line.position.set((d.dx * CELL) / 4, 0.095, (d.dz * CELL) / 4);
+    g.add(line);
+  }
   g.userData.lights = [];
-  void rng;
   return { group: g, lights: [] };
 }

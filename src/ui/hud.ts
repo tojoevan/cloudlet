@@ -192,7 +192,7 @@ export class ActionBar {
       this.replantBtn,
       mk('建造', h.onBuild).btn,
       focus.btn,
-      mk('设置', h.onSettings, 'ghost').btn,
+      mk('设置', h.onSettings, 'ghost settings-btn').btn,
     );
   }
 

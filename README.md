@@ -142,14 +142,43 @@ npm run init:tenant
 ```bash
 export VPS=user@<YOUR_SERVER_IP>
 export JWT_SECRET=$(openssl rand -hex 32) ADMIN_TOKEN=$(openssl rand -hex 16)
-export T4_KEY=<微家事后台签发的 data 作用域密钥 raw_secret>   # 路A
-# 或：export INTERNAL_KEY=<原始数据湖 X-Sync-Key>              # 路B
+# 路C（推荐）：除了网关私钥，还必须给出 T2 令牌的两个身份声明，否则网关拒绝启动
+export GATEWAY_KEY='<微家事网关 JWT_PRIVATE_KEY（PKCS#8 PEM）>'
+export GATEWAY_APP_ID=weijiashi      # 该租户在数据湖 tenants 表里的 app_id
+export GATEWAY_AUD=data.example.com # 数据湖域名，须与上游 aud 校验一致
+# 或路B：export INTERNAL_KEY=<原始数据湖 X-Sync-Key>
 bash deploy/deploy.sh
 ```
 部署后：站点根路径为游戏，管理后台在 `/admin`（用 `ADMIN_TOKEN` 进入）。网关用 `deploy/start.sh` 包装脚本加载 `.env` 后常驻（pm2 守护进程不继承交互 shell 的环境变量，故不能靠 `source .env && pm2 start`）。
 
+`GATEWAY_APP_ID` / `GATEWAY_AUD` 故意不设默认值：配错时不会「部分可用」，而是所有数据湖请求被上游拒绝，表现为**登录始终失败且提示用户名或密码错误**。
+
+### 登录失败自查（按顺序）
+1. `curl https://<你的域名>/api/health` → 检查返回里的 `app` 是否等于数据湖 `tenants.app_id`（cloudlet 租户为 `weijiashi`）。为空或不一致 → 全部请求 403 `forbidden: app mismatch`。
+2. 绕过 CDN 直连网关拿真实错误：`curl -X POST http://127.0.0.1:8787/api/auth/login -H 'content-type: application/json' -d '{"username":"x","password":"y"}'`。若返回「数据服务暂不可用（上游 HTTP 403/502）」则是配置/上游问题；只有返回「用户名或密码错误」才是真的密码错。
+3. 看网关启动日志：出现 `缺少 GATEWAY_APP_ID` / `缺少 GATEWAY_AUD` 即对应 `.env` 未配。
+
 ### 管理后台
 `/admin` 提供：玩家存档查看、等级 / 会员等级手动覆盖、密钥管理等。访问需 `ADMIN_TOKEN`。
+
+### 云存档历史（覆盖前快照）
+多设备同时自动同步时是「最后写入者胜 + 整体覆盖」，会静默丢进度。网关在**每次覆盖账号存档前**，把即将被覆盖的那份存进 `cloudlet_saves_history`（`app_id`/`owner` 与存档一致），默认每个账号保留最近 **12** 份、最小间隔 **10 分钟**（自动同步每 60s 一次，不设间隔会把历史冲成几分钟）。
+
+- 快照异步落库，不占写档响应时间；失败只打日志，绝不影响存档。
+- 仅账号模式产生快照；设备 UUID 模式一台设备独占，不存在互相覆盖。
+- 回滚（需 `ADMIN_TOKEN`）：
+
+```bash
+# 1) 列出某账号的快照
+curl -H 'x-admin-token: <ADMIN_TOKEN>' \
+  'https://<域名>/api/admin/saves/<accountId>/history'
+# 2) 回滚到指定快照（恢复前会自动把「当前档」也存一份，回滚本身可撤销）
+curl -X POST -H 'x-admin-token: <ADMIN_TOKEN>' -H 'content-type: application/json' \
+  -d '{"historyId":"<accountId>-<ts>-<rand>"}' \
+  'https://<域名>/api/admin/saves/<accountId>/restore'
+```
+
+回滚会同时校正账号镜像里的 level/exp，避免客户端下次推送被「等级跳变」判 400。可调参数：`SAVE_HISTORY_KEEP`、`SAVE_SNAPSHOT_INTERVAL_MS`、`LAKE_COLLECTION_HISTORY`。
 
 ---
 

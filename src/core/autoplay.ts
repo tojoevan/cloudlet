@@ -35,6 +35,8 @@ export function autoFocusStep(state: GameState, now: number): void {
   }
   if (!didBuild) {
     for (const type of BUILDING_ORDER) {
+      // 专注自动经营不自动铺路：道路是玩家手动连网的，自动无脑铺路既无意义又很快吞掉金币
+      if (type === 'road') continue;
       const def = BUILDINGS[type];
       const owned = state.buildings.filter((b) => b.type === type).length;
       const cost = Math.floor(def.cost * Math.pow(def.costGrowth, owned));

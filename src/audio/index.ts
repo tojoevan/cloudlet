@@ -1,6 +1,6 @@
 import type { AudioChannel } from '../core/types';
 import { bell, fmKeys, mtof } from './dsp';
-import { createMusicBus, MusicEngine } from './music';
+import { createMusicBus, MusicChannel, MusicEngine } from './music';
 
 export type SfxKind = 'plant' | 'harvest' | 'coin' | 'deliver' | 'levelup' | 'fever' | 'click' | 'error';
 
@@ -63,7 +63,7 @@ export class AudioManager {
       this.startRadio();
       return;
     }
-    this.music.start(this.channel);
+    this.music.start(this.channel as MusicChannel);
   }
 
   private startRadio(): void {

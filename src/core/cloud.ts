@@ -23,9 +23,15 @@ const PAUSE_MS = 5 * 60_000;
 
 let failures = 0;
 let pausedUntil = 0;
+let lastErrorDetail = '';
 
 export function isPaused(): boolean {
   return Date.now() < pausedUntil;
+}
+
+/** 最近一次同步失败的真实原因（供 UI 展示，避免笼统的「未连接」）。 */
+export function lastSyncError(): string {
+  return lastErrorDetail;
 }
 
 /** 用户手动点「立即同步」时调用，立刻重试 */
@@ -60,7 +66,7 @@ interface RequestResult {
 }
 
 async function request(
-  method: 'GET' | 'PUT',
+  method: 'GET' | 'PUT' | 'POST',
   ownerId: string,
   token: string | null | undefined,
   body?: unknown,
@@ -68,11 +74,14 @@ async function request(
 ): Promise<RequestResult> {
   if (isPaused()) return { ok: false, status: 0, skipped: true };
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
+  const timer = setTimeout(() => ctrl.abort(), 15000);
   try {
     const params = new URLSearchParams();
     params.set('owner', ownerId);
     if (importMode) params.set('import', '1');
+    // 防缓存：CDN/Cloudflare 可能缓存 GET /api/save 的陈旧响应，
+    // 每次追加唯一参数强制回源，避免前端拿到坏缓存。
+    if (method === 'GET') params.set('_', String(Date.now()));
     const headers: Record<string, string> = {};
     if (body) headers['content-type'] = 'application/json';
     if (token) headers['authorization'] = `Bearer ${token}`;
@@ -81,6 +90,7 @@ async function request(
       headers: Object.keys(headers).length ? headers : undefined,
       body: body ? JSON.stringify(body) : undefined,
       signal: ctrl.signal,
+      cache: 'no-store',
     });
     if (res.status === 404) {
       settle(true);
@@ -92,13 +102,28 @@ async function request(
       return { ok: false, status: 400 };
     }
     if (!res.ok) {
+      lastErrorDetail = `HTTP ${res.status}`;
       settle(false);
       return { ok: false, status: res.status };
     }
-    const data = res.status === 204 ? undefined : ((await res.json()) as CloudDoc);
+    let data: CloudDoc | undefined;
+    if (res.status !== 204) {
+      try {
+        data = (await res.json()) as CloudDoc;
+      } catch {
+        // 响应不是合法 JSON（典型为 CDN 缓存的坏响应/拦截页）→ 网络层失败
+        lastErrorDetail = '响应不是合法 JSON（可能被 CDN 缓存/拦截）';
+        settle(false);
+        return { ok: false, status: 0 };
+      }
+    }
     settle(true);
     return { ok: true, status: res.status, data };
-  } catch {
+  } catch (e) {
+    const name = (e as { name?: string })?.name ?? '';
+    const msg = (e as { message?: string })?.message ?? '';
+    lastErrorDetail =
+      name === 'AbortError' ? '请求超时（8s）' : `网络错误：${name || msg || 'fetch 失败'}`;
     settle(false);
     return { ok: false, status: 0 };
   } finally {
@@ -108,6 +133,11 @@ async function request(
 
 /**
  * 拉取存档。
+ * 注意：这里用 POST 而非 GET。原因——部分 CDN（如某些缓存型 CDN 前
+ * 置的缓存层）会无视源站 Cache-Control 与查询参数，把 GET /api/save 的陈旧
+ * 响应缓存并返回给客户端（甚至返回非 JSON 的坏响应导致「未连接」）。而 POST
+ * 请求永不被 CDN 缓存（与登录接口同理，登录一直正常），改用 POST 可从根上
+ * 绕过该缓存问题。后端 handleSave 已对 GET/POST 共用同一拉取分支。
  * @param ownerId 账号模式下为 accountId，未登录时为设备 UUID
  * @param token   登录态 JWT，未登录传 null
  */
@@ -115,7 +145,7 @@ export async function cloudPull(
   ownerId: string,
   token: string | null | undefined,
 ): Promise<{ status: SyncStatus; doc?: GameState; updatedAt?: number }> {
-  const r = await request('GET', ownerId, token);
+  const r = await request('POST', ownerId, token);
   if (r.skipped) return { status: 'paused' };
   if (!r.ok) return { status: r.status === 0 ? 'unavailable' : 'error' };
   if (!r.data?.doc) return { status: 'ok' };

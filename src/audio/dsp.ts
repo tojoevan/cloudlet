@@ -176,3 +176,46 @@ export function bell(
   osc.stop(time + dur + 0.05);
   harm.stop(time + dur + 0.05);
 }
+
+/**
+ * 拨弦（pluck）：原声吉他 / 班卓的木质拨奏感。
+ * 三角波主体 + 略失谐锯齿增加厚度，经过一个随时间下扫的低通，
+ * 包络极快起音、指数衰减 —— 听感接近手指 / 拨片拨动琴弦。
+ */
+export function pluck(
+  ctx: BaseAudioContext,
+  dest: AudioNode,
+  freq: number,
+  time: number,
+  dur: number,
+  gain: number,
+): void {
+  const osc = ctx.createOscillator();
+  osc.type = 'triangle';
+  osc.frequency.value = freq;
+
+  const osc2 = ctx.createOscillator();
+  osc2.type = 'sawtooth';
+  osc2.frequency.value = freq * 1.002;
+  const mix = ctx.createGain();
+  mix.gain.value = 0.4;
+  osc2.connect(mix);
+
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(Math.min(freq * 6, 6500), time);
+  lp.frequency.exponentialRampToValueAtTime(Math.max(freq * 1.4, 380), time + dur * 0.85);
+
+  const env = ctx.createGain();
+  env.gain.setValueAtTime(0.0001, time);
+  env.gain.linearRampToValueAtTime(gain, time + 0.004);
+  env.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+
+  osc.connect(lp);
+  mix.connect(lp);
+  lp.connect(env).connect(dest);
+  osc.start(time);
+  osc2.start(time);
+  osc.stop(time + dur + 0.05);
+  osc2.stop(time + dur + 0.05);
+}

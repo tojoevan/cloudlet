@@ -4,6 +4,8 @@ import { AudioManager } from './audio';
 import {
   build,
   buildFactory,
+  demolish,
+  demolishRefund,
   harvest,
   harvestAll,
   plant,
@@ -22,15 +24,16 @@ import {
   cloudPush,
   describeStatus,
   isPaused,
+  lastSyncError,
   resetPause,
   type SyncStatus,
 } from './core/cloud';
 import * as auth from './core/auth';
-import { addItem, itemName } from './core/economy';
+import { addItem, itemName, normalizeProgress } from './core/economy';
 import { cancelFocus, focusProgress, isFocusing, settleFocus, startFocus } from './core/focus';
 import { autoFocusStep } from './core/autoplay';
 import { deliver } from './core/orders';
-import { clearLocal, exportCode, getDeviceId, importCode, loadLocal, saveLocal } from './core/save';
+import { clearLocal, exportCode, exportSaveFile, getDeviceId, importCode, loadLocal, saveLocal } from './core/save';
 import { canPlace } from './core/grid';
 import { advance, tick } from './core/simulation';
 import { createInitialState } from './core/state';
@@ -39,12 +42,13 @@ import { seedSquareTestLayout } from './core/seed';
 import type { BuildingType, CropId, FactoryType, GameState, ItemId } from './core/types';
 import { RECIPE_BY_ID } from './data/factories';
 import { BUILDINGS, BUILDING_FOOTPRINT } from './data/buildings';
+import { CROPS } from './data/crops';
 import { randomLine, randomFarmLine, randomLumberLine, randomRanchLine } from './data/lines';
 import { plotPosition, World } from './render/world';
 import { SceneView } from './render/scene';
 import type { PerfSnapshot } from './render/scene';
 import { setScheme, getSchemeId } from './render/palette';
-import { closeModal, el, floatAt, initUI, toast } from './ui/dom';
+import { closeModal, el, floatAt, fmtDur, initUI, openModal, toast } from './ui/dom';
 import { ActionBar, HUD, OrderBoard } from './ui/hud';
 import { SpeechBubble } from './ui/speech';
 import {
@@ -153,6 +157,9 @@ focusBar.addEventListener('click', () => {
   hideFocusUi();
 });
 
+/** 拆除模式：开启后点选建筑会弹「拆除确认」，返还一半建造费用 */
+let demolishMode = false;
+
 const bar = new ActionBar({
   onHarvestAll: () => {
     const r = harvestAll(state, Date.now());
@@ -171,14 +178,21 @@ const bar = new ActionBar({
     markDirty();
     saveNow();
   },
-  onBuild: () =>
+  onBuild: () => {
+    // 进入建造面板前先退出拆除模式，避免两种模式叠加造成误操作
+    demolishMode = false;
     openBuildPanel(state, {
       onBuild: doBuild,
       onBuildFactory: doBuildFactory,
       onUpgrade: doUpgrade,
       onSwitchIsland: switchIslandTo,
       onSeedTest: seedSquareTest,
-    }),
+      onDemolish: () => {
+        demolishMode = true;
+        toast('拆除模式：点选要拆除的建筑（再点「建造」可退出）');
+      },
+    });
+  },
   onFocus: () =>
     openFocusPanel(state, Date.now(), {
       onStart: (minutes) => {
@@ -242,6 +256,7 @@ function openSettings(): void {
     },
     onRotate: () => view.rotateBy(Math.PI / 2),
     onExport: () => exportCode(state),
+    onExportFile: () => exportSaveFile(state),
     onImport: (code) => {
       const s = importCode(code);
       if (!s) return toast('存档码无法识别');
@@ -313,6 +328,65 @@ function floatAtPlot(index: number, text: string, kind: '' | 'gold' | 'good' = '
   p.y += 0.9;
   const s = world.worldToScreen(p, view.camera, canvas);
   floatAt(s.x, s.y, text, kind);
+}
+
+// ---------- 农田信息浮层：点生长中的地块，显示作物名 + 实时剩余成熟时间 ----------
+interface PlotTip {
+  id: number;
+  node: HTMLElement;
+  name: HTMLElement;
+  time: HTMLElement;
+  until: number;
+}
+let plotTip: PlotTip | null = null;
+
+function showPlotTip(plotId: number): void {
+  const plot = state.plots[plotId];
+  if (!plot || !plot.crop) return;
+  if (!plotTip) {
+    const node = el('div', 'plot-tip');
+    const name = el('div', 'plot-tip-name');
+    const time = el('div', 'plot-tip-time');
+    node.appendChild(name);
+    node.appendChild(time);
+    uiRoot.appendChild(node);
+    plotTip = { id: plotId, node, name, time, until: 0 };
+  }
+  plotTip.node.classList.add('show');
+  plotTip.id = plotId;
+  plotTip.name.textContent = CROPS[plot.crop].name;
+  plotTip.until = Date.now() + 6000;
+  updatePlotTip(Date.now());
+}
+
+function hidePlotTip(): void {
+  if (plotTip) {
+    plotTip.node.classList.remove('show');
+    plotTip.node.remove();
+    plotTip = null;
+  }
+}
+
+function updatePlotTip(now: number): void {
+  if (!plotTip) return;
+  if (now > plotTip.until) {
+    hidePlotTip();
+    return;
+  }
+  const plot = state.plots[plotTip.id];
+  // 地块被清空/收获 → 关掉
+  if (!plot || !plot.crop) {
+    hidePlotTip();
+    return;
+  }
+  const remain = Math.max(0, plot.readyAt - now);
+  plotTip.time.textContent = remain > 0 ? `预计 ${fmtDur(remain)} 后成熟` : '已成熟，点击收获';
+  // 跟随镜头：把地块世界坐标投到屏幕（按当前岛形状映射，方岛才对得上）
+  const p = world.plotWorldPos(plotTip.id).clone();
+  p.y += 1.0;
+  const s = world.worldToScreen(p, view.camera, canvas);
+  plotTip.node.style.left = `${s.x}px`;
+  plotTip.node.style.top = `${s.y}px`;
 }
 
 // ---------- 玩家动作 ----------
@@ -483,6 +557,10 @@ function endPlacement(reopen: boolean): void {
       onUpgrade: doUpgrade,
       onSwitchIsland: switchIslandTo,
       onSeedTest: seedSquareTest,
+      onDemolish: () => {
+        demolishMode = true;
+        toast('拆除模式：点选要拆除的建筑（再点「建造」可退出）');
+      },
     });
   }
 }
@@ -639,8 +717,20 @@ canvas.addEventListener('pointerup', (e) => {
   }
 
   const hit = view.pick(e.clientX, e.clientY, world.allPickables);
+  // 任何点击先收起农田浮层（下方若点到生长中的地块会重新弹出）
+  hidePlotTip();
   if (!hit) return;
 
+  // 拆除模式：点选建筑弹「拆除确认」（返还一半费用）；点非建筑则退出模式
+  if (demolishMode) {
+    const bId = findFlag(hit.object, 'buildingId');
+    if (bId !== undefined && state.buildings[bId]) {
+      confirmDemolish(bId);
+    } else {
+      demolishMode = false;
+    }
+    return;
+  }
 
   // 居民优先：他们的碰撞体比地块高，射线本来就先命中
   const agentId = findFlag(hit.object, 'agentId');
@@ -663,12 +753,43 @@ canvas.addEventListener('pointerup', (e) => {
     const now = Date.now();
     if (!plot.crop) return openPlantPanel(state, plotId, (c) => doPlant(plotId, c));
     if (plot.readyAt <= now) return doHarvest(plotId);
-    return toast(`还要 ${Math.ceil((plot.readyAt - now) / 1000)} 秒`);
+    return showPlotTip(plotId); // 生长中：弹出作物名 + 剩余成熟时间
   }
 
   const factoryIndex = findFlag(hit.object, 'factoryIndex');
   if (factoryIndex !== undefined) openFactory(factoryIndex);
 });
+
+/** 拆除确认弹窗：展示建筑名与返还金币，确认后执行 demolish 并反馈 */
+function confirmDemolish(index: number): void {
+  const b = state.buildings[index];
+  if (!b) {
+    demolishMode = false;
+    return;
+  }
+  const def = BUILDINGS[b.type];
+  const refund = demolishRefund(state, b.id);
+  const body = el('div');
+  body.appendChild(el('p', 'hint', `拆除「${def.name}」将返还 ${refund} 金币（原价的 50%）。`));
+  const row = el('div', 'row');
+  const ok = el('button', 'btn danger', `拆除 · 返还 ${refund} 金`);
+  ok.addEventListener('click', () => {
+    const r = demolish(state, b.id);
+    if (r.ok) {
+      audio.play('coin');
+      toast(`已拆除 ${r.data.name}，返还 ${r.data.refund} 金`);
+      markDirty();
+      saveNow();
+    }
+    demolishMode = false;
+    closeModal();
+  });
+  const cancel = el('button', 'btn ghost', '取消');
+  cancel.addEventListener('click', () => closeModal());
+  row.append(ok, cancel);
+  body.appendChild(row);
+  openModal('拆除确认', `确定拆除 ${def.name}？`, body);
+}
 
 canvas.addEventListener('pointermove', (e) => {
   if (e.pointerType !== 'mouse' || downAt) return;
@@ -757,7 +878,15 @@ function ensureAudio(): boolean {
 }
 
 // ---------- 存档与云同步 ----------
+/** 同步状态文案；「未连接」时附带真实错误原因，便于定位是缓存/拦截还是网络。 */
+function syncMsg(s: SyncStatus): string {
+  const base = describeStatus(s);
+  if (s === 'unavailable' && lastSyncError()) return `${base}（${lastSyncError()}）`;
+  return base;
+}
+
 function saveNow(): void {
+  normalizeProgress(state); // 推送前规整，避免越界经验被云端以「等级异常」拒绝
   saveLocal(state);
   const { ownerId, token } = syncOwner();
   void cloudPush(ownerId, state, token).then((s) => {
@@ -787,48 +916,80 @@ async function syncNow(manual: boolean): Promise<void> {
   }
   if (manual) resetPause();
   syncStatus = 'syncing';
-  const { ownerId, token } = syncOwner();
-  const r = await cloudPull(ownerId, token);
-  if (r.status !== 'ok') {
-    syncStatus = r.status;
-    if (manual) toast(describeStatus(r.status));
-    return;
-  }
-  if (r.doc) {
-    // 本地还是一份「刚开局、没玩过」的空白档时，优先采用云端真实进度，
-    // 否则会反过来把空档推上去、清空云端（常见于新设备首次登录）。
-    const fresh = isFreshLocal(state);
-    const cloudNewer = r.doc.savedAt > state.savedAt + 5_000;
-    if (fresh || cloudNewer) {
-      const take = fresh
-        ? true
-        : window.confirm('云端有更新的进度，要切换到云端存档吗？（选「取消」保留本机进度并覆盖云端）');
-      if (take) {
+  try {
+    const { ownerId, token } = syncOwner();
+    const r = await cloudPull(ownerId, token);
+    if (r.status !== 'ok') {
+      syncStatus = r.status;
+      if (manual) toast(syncMsg(r.status));
+      return;
+    }
+    if (r.doc) {
+      // 本地还是「刚开局、没玩过」的空白档，或云端进度更新时，采用云端存档。
+      // 注意：这里不能用 window.confirm —— 它会阻塞主线程，在移动端 WebView 中
+      // 静默挂起，导致「同步中」永久卡死。云同步语义本就以云端为准。
+      const fresh = isFreshLocal(state);
+      // 与「上次和云端同步一致的版本」比较，而非本地 savedAt（本地自动存档会刷新 savedAt，
+      // 若用它判断，本地永远比云端新 → 从不下载、反把云端覆盖掉）。
+      const cloudNewer = r.doc.savedAt > (state.syncedAt ?? 0) + 5_000;
+      if (fresh || cloudNewer) {
         state = r.doc;
         state.deviceId = deviceId;
         if (auth.isLoggedIn()) state.accountId = auth.accountId() ?? state.accountId;
+        state.syncedAt = r.doc.savedAt; // 标记已与云端此版本同步
         saveLocal(state);
         markDirty();
-        if (manual) toast(fresh ? '已从云端同步进度' : '已切换到云端存档');
+        if (manual) toast(fresh ? '已从云端同步进度' : '已采用云端更新的进度');
       }
     }
+    normalizeProgress(state); // 推送前规整，避免越界经验被云端拒绝
+    syncStatus = await cloudPush(ownerId, state, token);
+    // 推送成功后，本地版本即为云端最新版本
+    state.syncedAt = state.savedAt;
+    // 会员等级刷新是「锦上添花」，绝不能阻塞同步主流程：
+    // /api/auth/me 是 GET，在部分会缓存 GET 的 CDN 上可能挂起，
+    // 一旦 await 卡在这里，syncNow 永远停不下来 →「同步中」永久卡死。
+    // 改为 fire-and-forget，等级徽章会在下次登录/恢复时自然更新。
+    if (auth.isLoggedIn()) void auth.refresh();
+    if (manual) toast(syncMsg(syncStatus));
+  } catch {
+    // 任何意外都不该让状态永久停在「同步中」而卡死 UI
+    syncStatus = 'error';
   }
-  syncStatus = await cloudPush(ownerId, state, token);
-  // 登录态下顺手回源刷新会员等级（后台可能改过），保持 HUD 徽章最新
-  if (auth.isLoggedIn()) await auth.refresh();
-  if (manual) toast(describeStatus(syncStatus));
 }
 
 setInterval(() => saveLocal(state), 30_000);
 // 云同步默认关，只有用户手动成功过一次才自动跑，避免 console 被 500 刷屏
 setInterval(() => {
   if (state.settings.cloudSync) void syncNow(false);
-}, 120_000);
+}, 60_000);
 window.addEventListener('beforeunload', () => saveLocal(state));
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) saveLocal(state);
 });
 window.addEventListener('resize', () => view.resize());
+
+// 测量移动端浏览器工具栏（地址栏/底部导航）遮挡高度，写入 --toolbar-b。
+// actionbar / toasts / perf 据此上移，避免被工具栏盖住。100dvh 在某些浏览器
+// 仍会被工具栏吃掉，这里用 VisualViewport 实测，更稳。
+function installToolbarInset(): void {
+  const apply = () => {
+    const vv = window.visualViewport;
+    const root = document.documentElement;
+    if (!vv) {
+      root.style.setProperty('--toolbar-b', '0px');
+      return;
+    }
+    // 底部被浏览器 UI 吃掉的高度 = 布局视口 - (视觉视口顶偏移 + 视觉视口高)
+    const inset = Math.max(0, window.innerHeight - vv.offsetTop - vv.height);
+    root.style.setProperty('--toolbar-b', `${Math.round(inset)}px`);
+  };
+  apply();
+  window.visualViewport?.addEventListener('resize', apply);
+  window.visualViewport?.addEventListener('scroll', apply);
+  window.addEventListener('orientationchange', apply);
+}
+installToolbarInset();
 
 // Q/E 或左右方向键转视角。右键拖拽太隐蔽，键盘是最容易发现的入口
 window.addEventListener('keydown', (e) => {
@@ -970,6 +1131,7 @@ function frame(t: number): void {
 
   // 5 分钟无操作 → 自动进入 25 分钟专注（用户要求：自动只进 25 分钟这一档）
   if (!isFocusing(state, now) && now - lastActivity > 5 * 60_000) {
+    demolishMode = false;
     startFocus(state, 25, now);
     toast('专注模式已自动开启（25 分钟）');
   }
@@ -1050,6 +1212,7 @@ function frame(t: number): void {
   bar.update(state, now);
   autoChatter(now);
   speech.update(view.camera, canvas, now);
+  updatePlotTip(now); // 农田浮层：跟随镜头 + 实时倒计时
 
   view.render();
   if (state.settings.perfMonitor) perfSample(rawInterval, view.perf);

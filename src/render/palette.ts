@@ -25,6 +25,7 @@ export interface Palette {
   water: number;
   cloud: number;
   path: number;
+  road: number;
 }
 
 export interface HousePalette {
@@ -77,6 +78,7 @@ const MACARON: Palette = {
   water: 0x76d9f0,
   cloud: 0xffffff,
   path: 0xf2e6c8,
+  road: 0x9aa6b2,
 };
 
 // 奶油水彩：掺白最多、低饱和，像被柔光罩住（配稍弱光照，防过曝）
@@ -98,6 +100,7 @@ const CREAM: Palette = {
   water: 0xa8e6f0,
   cloud: 0xffffff,
   path: 0xf5ecd2,
+  road: 0xa8b0ba,
 };
 
 // 果冻糖果：霓虹级四原色（亮黄/亮红/亮蓝/亮绿），小朋友高辨识度，最激进
@@ -120,6 +123,7 @@ const JELLY: Palette = {
   water: 0x4addff,
   cloud: 0xffffff,
   path: 0xfff0c0,
+  road: 0x93a4b6,
 };
 
 // 晨雾清新：极明度、弱对比，清晨通透感（光照最弱，避免洗白）
@@ -141,6 +145,7 @@ const MIST: Palette = {
   water: 0xc4eef5,
   cloud: 0xffffff,
   path: 0xf6efdc,
+  road: 0xaab2bc,
 };
 
 // ---------- 住宅配色（从马卡龙基础色派生各色系变体） ----------

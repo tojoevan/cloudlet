@@ -7,11 +7,14 @@
   --c-blue: #457b9d;
   --c-gold: #e9b824;
   --c-green: #6a994e;
+  --c-sub: #7a8699;
   --c-line: rgba(43, 58, 85, 0.1);
   --radius: 14px;
   --radius-sm: 10px;
   --shadow: 0 6px 22px rgba(43, 58, 85, 0.14);
   --safe-b: env(safe-area-inset-bottom, 0px);
+  /* 移动端浏览器工具栏（地址栏/底部导航）实测遮挡高度，由 JS 写入，默认 0 */
+  --toolbar-b: 0px;
 }
 
 * {
@@ -22,6 +25,9 @@
 html,
 body {
   margin: 0;
+  /* 用 100%（即大视口，等同 100vh，不含浏览器工具栏的「临时遮挡」）。
+     不要用 100dvh：底部 actionbar / 弹窗改由 JS 实测的 --toolbar-b 实时跟随
+     工具栏的收起/弹出，dvh 会和该测量值叠加算重。 */
   height: 100%;
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
@@ -89,7 +95,7 @@ button {
   right: 10px;
   display: flex;
   gap: 8px;
-  align-items: center;
+  align-items: flex-start; /* 订单挂入后展开成高列表，需让会员等级等 chip 与订单头部顶部对齐，而非居中 */
   justify-content: center; /* 与小岛、弹窗同为居中轴，视觉更平衡 */
   flex-wrap: wrap;
   transition: top 0.2s ease, opacity 0.35s ease, transform 0.35s ease;
@@ -382,6 +388,12 @@ button {
   color: var(--c-ink);
 }
 
+/* 设置按钮：背景透明、加细边框，从半透明底里透出来更清爽，且不改动其他 ghost 按钮 */
+.btn.ghost.settings-btn {
+  background: transparent;
+  border: 1px solid var(--c-line);
+}
+
 .btn.accent {
   background: var(--c-accent);
 }
@@ -454,7 +466,8 @@ button {
   position: absolute;
   left: 10px;
   right: 10px;
-  bottom: calc(10px + var(--safe-b));
+  /* 10px 间距 + 刘海安全区 + 实测工具栏高度，确保不被浏览器工具栏盖住 */
+  bottom: calc(10px + var(--safe-b) + var(--toolbar-b, 0px));
   display: flex;
   gap: 8px;
   justify-content: center;
@@ -480,6 +493,12 @@ button {
 .actionbar .btn {
   min-width: 76px;
   box-shadow: var(--shadow);
+}
+
+/* 拆除模式激活：给「拆除」按钮描个边，提示当前处于可拆状态 */
+.actionbar .btn.on {
+  outline: 2px solid #fff;
+  outline-offset: -3px;
 }
 
 .actionbar .btn .badge {
@@ -514,6 +533,8 @@ button {
   background: var(--c-panel-solid);
   border-radius: 20px 20px 0 0;
   padding: 16px 16px calc(16px + var(--safe-b));
+  /* 整张抽屉上移工具栏高度，避免底部内容被移动端浏览器工具栏盖住 */
+  margin-bottom: var(--toolbar-b, 0px);
   box-shadow: var(--shadow);
   animation: rise 0.2s ease;
 }
@@ -530,6 +551,18 @@ button {
   .modal {
     border-radius: 20px;
     padding: 18px;
+  }
+}
+
+/* 手机端底部抽屉布局（≤639px）：用 --mb 统一「底部预留」，既上移抽屉避开
+   浏览器工具栏，又从最大高度里扣掉同样数值，保证顶部不裁切。预留值由 JS
+   按工具栏实时高度写入 --toolbar-b（隐藏=0 贴底无死区、弹出=实际高度上移），
+   无需静态保底。 */
+@media (max-width: 639px) {
+  .modal {
+    --mb: var(--toolbar-b, 0px);
+    margin-bottom: var(--mb);
+    max-height: calc(100dvh - var(--mb) - var(--safe-b) - 16px);
   }
 }
 
@@ -825,6 +858,34 @@ button {
   color: var(--c-green);
 }
 
+/* 农田信息浮层：点生长中的地块弹出，显示作物名 + 剩余成熟时间，镜头转动时跟随 */
+.plot-tip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 10px));
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: var(--shadow);
+  pointer-events: none;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.14s ease;
+  z-index: 30;
+}
+.plot-tip.show {
+  opacity: 1;
+}
+.plot-tip-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-ink);
+}
+.plot-tip-time {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--c-sub);
+}
+
 @keyframes floatUp {
   0% { opacity: 0; transform: translate(-50%, -20%) scale(0.85); }
   22% { opacity: 1; transform: translate(-50%, -60%) scale(1); }
@@ -876,7 +937,7 @@ button {
 .toasts {
   position: absolute;
   left: 50%;
-  bottom: calc(76px + var(--safe-b));
+  bottom: calc(76px + var(--safe-b) + var(--toolbar-b, 0px));
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
@@ -910,7 +971,7 @@ button {
   }
   /* 多张订单卡改为可滚动，不再纵向铺满盖住整屏 */
   .orders-body {
-    max-height: calc(100vh - 210px);
+    max-height: calc(100dvh - 210px);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
@@ -918,7 +979,7 @@ button {
   .perf {
     top: auto;
     right: auto;
-    bottom: calc(62px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(62px + env(safe-area-inset-bottom, 0px) + var(--toolbar-b, 0px));
     left: 8px;
   }
   .order {

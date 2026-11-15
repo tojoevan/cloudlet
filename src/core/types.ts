@@ -59,6 +59,8 @@ export interface Building {
   w?: number;
   h?: number;
   rot?: 0 | 1 | 2 | 3;
+  /** 建造时实际支付的金币（含 costGrowth 加成）。拆除时按它的一半返还；旧档无此字段则按基础价估算。 */
+  cost?: number;
 }
 
 export interface OrderLine {
@@ -74,7 +76,16 @@ export interface Order {
   createdAt: number;
 }
 
-export type AudioChannel = 'citypop' | 'lofi' | 'ambient' | 'radio' | 'off';
+export type AudioChannel =
+  | 'citypop'
+  | 'lofi'
+  | 'ambient'
+  | 'guitar'
+  | 'country'
+  | 'jazz'
+  | 'shuffle'
+  | 'radio'
+  | 'off';
 
 export interface Settings {
   channel: AudioChannel;
@@ -139,6 +150,9 @@ export interface GameState {
   islandData: Record<string, IslandData>;
   /** 最后保存时刻（ms）。回来时用它算离线时长。 */
   savedAt: number;
+  /** 上次与云端同步一致的存档版本时间戳（ms）。同步的「是否下载云端」判断以它为准，
+   *  不受本地自动存档刷新 savedAt 的影响，避免「本地永远比云端新→从不下载、反覆盖云端」。 */
+  syncedAt?: number;
   level: number;
   exp: number;
   coins: number;

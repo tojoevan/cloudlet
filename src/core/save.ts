@@ -1,4 +1,4 @@
-import { SAVE_VERSION } from './economy';
+import { SAVE_VERSION, normalizeProgress } from './economy';
 import { createInitialState } from './state';
 import { ensureIslands } from './island';
 import type { GameState } from './types';
@@ -102,6 +102,8 @@ function normalize(s: GameState): GameState {
     }
   }
   ensureIslands(s);
+  normalizeProgress(s); // 加载即规整进度，旧越界档不再污染后续推送
+  s.syncedAt ??= 0; // 旧存档补齐「上次同步点」，避免 undefined 参与比较
   return s;
 }
 
@@ -147,9 +149,41 @@ export function exportCode(state: GameState): string {
   return toBase64(JSON.stringify(state));
 }
 
+/** 导出为 .json 文件并触发浏览器下载。微信等发文件不受字符数限制，比存档码更可靠。 */
+export function exportSaveFile(state: GameState): void {
+  const payload = {
+    app: 'cloudlet',
+    version: SAVE_VERSION,
+    exportedAt: Date.now(),
+    state,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const ts = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
+  a.href = url;
+  a.download = `cloudlet-save-${ts}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export function importCode(code: string): GameState | null {
+  const t = code.trim();
+  if (!t) return null;
+  let raw: string = t;
+  // 老式存档码是 base64；若文本本身就是 JSON（如 .json 文件内容/粘贴的 JSON），直接当 JSON 解析
+  if (!t.startsWith('{')) {
+    try {
+      raw = fromBase64(t);
+    } catch {
+      return null;
+    }
+  }
   try {
-    const s = JSON.parse(fromBase64(code.trim()));
+    const obj = JSON.parse(raw);
+    const s = obj && obj.state ? obj.state : obj;
     if (!s || typeof s !== 'object' || !s.plots) return null;
     return migrate(s);
   } catch {

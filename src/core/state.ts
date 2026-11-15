@@ -13,6 +13,7 @@ export function createInitialState(deviceId: string): GameState {
     version: SAVE_VERSION,
     deviceId,
     savedAt: now,
+    syncedAt: 0,
     level: 1,
     exp: 0,
     coins: 300,

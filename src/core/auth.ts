@@ -151,11 +151,21 @@ export async function refresh(): Promise<AuthProfile | null> {
   const token = getToken();
   if (!token) return null;
   try {
-    const res = await fetch('/api/auth/me', { headers: { authorization: `Bearer ${token}` } });
-    if (!res.ok) {
+    // 加超时保护：/api/auth/me 是 GET，在部分 CDN 上可能挂起，
+    // 不能让会员刷新拖垮调用方（同步等）。
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    const res = await fetch('/api/auth/me', {
+      headers: { authorization: `Bearer ${token}` },
+      signal: ctrl.signal,
+    }).finally(() => clearTimeout(timer));
+    // 只有 401 才是「令牌真的失效」。502/503/超时是上游故障，
+    // 若也在这里 logout()，用户会被静默踢下线、还看不到真实原因。
+    if (res.status === 401) {
       logout();
       return null;
     }
+    if (!res.ok) return memProfile;
     const data = await res.json();
     const profile: AuthProfile = {
       username: data.username,

@@ -44,6 +44,11 @@ const TENANT = process.env.LAKE_TENANT || 'cloudlet';
 const COLLECTION_SAVES = process.env.LAKE_COLLECTION || 'cloudlet_saves';
 const COLLECTION_ACCOUNTS = process.env.LAKE_COLLECTION_ACCOUNTS || 'cloudlet_accounts';
 const COLLECTION_USERNAMES = process.env.LAKE_COLLECTION_USERNAMES || 'cloudlet_usernames';
+// 覆盖前快照：多设备「最后写入者胜 + 整体覆盖」会静默丢进度，这里给每次覆盖留一份旧档副本。
+const COLLECTION_HISTORY = process.env.LAKE_COLLECTION_HISTORY || 'cloudlet_saves_history';
+// 每个账号保留的份数，以及最小快照间隔（自动同步每 60s 一次，不设间隔会把历史冲成几分钟）
+const HISTORY_KEEP = Number(process.env.SAVE_HISTORY_KEEP || 12);
+const SNAPSHOT_MIN_INTERVAL_MS = Number(process.env.SAVE_SNAPSHOT_INTERVAL_MS || 10 * 60_000);
 const INTERNAL_KEY = process.env.INTERNAL_KEY;
 // 路C：对接微家事通用网关，经 /api/t2data 通道（T2 account JWT）代理到数据湖。
 // 持有微家事网关的 Ed25519 私钥，为每个玩家签 T2 JWT，由微家事网关转发到
@@ -51,7 +56,13 @@ const INTERNAL_KEY = process.env.INTERNAL_KEY;
 const GATEWAY_MODE = !!process.env.GATEWAY_KEY;
 const GATEWAY_BASE = (process.env.GATEWAY_BASE || 'https://your-gateway.example.com').replace(/\/$/, '');
 const GATEWAY_KEY = process.env.GATEWAY_KEY ? process.env.GATEWAY_KEY.replace(/\\n/g, '\n') : '';
-const GATEWAY_APP_ID = process.env.GATEWAY_APP_ID || 'jiashiben';
+// T2 JWT 的两个身份声明，故意都不设默认值（见下方启动守卫）：
+//   aid = 该租户在数据湖 tenants 表里记录的 app_id，配错会被上游 403 app mismatch；
+//   aud = 数据湖域名，配错会被上游 401 bad aud。
+// 历史上这里给 aid 留过 'jiashiben' 默认值，导致未配置时每条数据湖请求都 403，
+// 而登录接口又把 403 映射成「用户名或密码错误」，长期被误判为密码问题。
+const GATEWAY_APP_ID = process.env.GATEWAY_APP_ID || '';
+const GATEWAY_AUD = process.env.GATEWAY_AUD || '';
 // 路A：直接对接微家事网关的 T4 数据层（/api/t4data），用 data 作用域 API Key 鉴权
 const T4_MODE = !!process.env.T4_KEY;
 const T4_BASE = (process.env.T4_BASE || 'https://your-gateway.example.com/api/t4data').replace(/\/$/, '');
@@ -89,6 +100,24 @@ if (!JWT_SECRET) {
 }
 if (!MEMORY_MODE && !T4_MODE && !INTERNAL_KEY && !GATEWAY_MODE) {
   console.error('[cloudlet-api] 缺少数据湖凭证：请设置 GATEWAY_KEY（微家事网关 T2 通道，路C）/ INTERNAL_KEY（原始通道，路B）/ T4_KEY（路A）');
+  process.exit(1);
+}
+// 路C 的两个声明必须显式配置：缺任何一个都不会「降级可用」，只会让全部数据湖请求失败。
+// 宁可启动即失败，也不要上线后表现为「登录始终失败」。
+// 占位值也拦住：照抄 .env.example 时这些值非空，能绕过「是否为空」的检查
+const isPlaceholder = (v) => /REPLACE_WITH|^your-|^<.*>$/i.test(String(v || ''));
+if (GATEWAY_MODE && (!GATEWAY_APP_ID || isPlaceholder(GATEWAY_APP_ID))) {
+  console.error(
+    '[cloudlet-api] GATEWAY_APP_ID 缺失或仍是占位值：必须填该租户在数据湖 tenants 表里的 app_id' +
+    '（cloudlet 租户归属 weijiashi）。配错时数据湖会对每条请求返回 403 forbidden: app mismatch',
+  );
+  process.exit(1);
+}
+if (GATEWAY_MODE && (!GATEWAY_AUD || isPlaceholder(GATEWAY_AUD))) {
+  console.error(
+    '[cloudlet-api] GATEWAY_AUD 缺失或仍是占位值：必须填数据湖域名（与上游 JWT aud 校验一致，如 data.example.com）。' +
+    '配错时签发的 T2 令牌会被上游以 401 bad aud 拒绝',
+  );
   process.exit(1);
 }
 
@@ -212,9 +241,14 @@ async function memLake(method, collection, id, ownerId, body) {
     return { status: 200, ok: true, json: async () => existing };
   }
   if (method === 'POST') {
-    if (mem.has(key)) return { status: 409, ok: false, json: async () => ({}) };
-    const row = { id, doc: body.doc, owner_openid: ownerId, updated_at: Date.now() };
-    mem.set(key, row);
+    // 与真实数据湖一致：POST 到集合根时 id 从 body 取（lakeUpsert 的创建分支就是这种调用）。
+    // 之前直接用形参 id（此时为 undefined），导致所有「先 PUT 失败再 POST 创建」的行
+    // 都堆到 `${collection}/undefined` 这个键上，本地内存模式注册完就登录不上。
+    const rowId = id ?? body?.id;
+    const postKey = `${collection}/${rowId}`;
+    if (mem.has(postKey)) return { status: 409, ok: false, json: async () => ({}) };
+    const row = { id: rowId, doc: body.doc, owner_openid: ownerId, updated_at: Date.now() };
+    mem.set(postKey, row);
     return { status: 201, ok: true, json: async () => row };
   }
   if (method === 'DELETE') {
@@ -225,17 +259,17 @@ async function memLake(method, collection, id, ownerId, body) {
 }
 
 /** 统一数据湖调用，返回 { status, ok, json() }，屏蔽内存 / 原始 cloudflarepool / 微家事 T4 网关 差异 */
-async function lake(method, collection, id, ownerId, body) {
+async function lake(method, collection, id, ownerId, body, query = '') {
   if (MEMORY_MODE) return memLake(method, collection, id, ownerId, body);
-  if (GATEWAY_MODE) return gwLake(method, collection, id, ownerId, body);
-  if (T4_MODE) return t4Lake(method, collection, id, ownerId, body);
-  return rawLake(method, collection, id, ownerId, body);
+  if (GATEWAY_MODE) return gwLake(method, collection, id, ownerId, body, 0, query);
+  if (T4_MODE) return t4Lake(method, collection, id, ownerId, body, query);
+  return rawLake(method, collection, id, ownerId, body, query);
 }
 
 /** 原始 cloudflarepool（X-Sync-Key 通道） */
-async function rawLake(method, collection, id, ownerId, body) {
+async function rawLake(method, collection, id, ownerId, body, query = '') {
   const base = `/t/${encodeURIComponent(TENANT)}/c/${encodeURIComponent(collection)}`;
-  const path = id ? `${base}/${encodeURIComponent(id)}` : base;
+  const path = id ? `${base}/${encodeURIComponent(id)}` : `${base}${query}`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
@@ -258,9 +292,9 @@ async function rawLake(method, collection, id, ownerId, body) {
 }
 
 /** 微家事网关 T4 数据层：/api/t4data/rows/{table}[/{id}]，Bearer API Key 鉴权 */
-async function t4Lake(method, collection, id, ownerId, body) {
+async function t4Lake(method, collection, id, ownerId, body, query = '') {
   const base = `${T4_BASE}/rows/${encodeURIComponent(collection)}`;
-  const url = id ? `${base}/${encodeURIComponent(id)}` : `${base}?limit=1000`;
+  const url = id ? `${base}/${encodeURIComponent(id)}` : `${base}${query || '?limit=1000'}`;
   const headers = { 'content-type': 'application/json', Authorization: 'Bearer ' + T4_KEY };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
@@ -291,7 +325,7 @@ function signT2Jwt(sub, ttl = 3600) {
     tid: 'cloudlet',
     scp: ['user:read', 'user:write'],
     iss: 'gateway',
-    aud: process.env.GATEWAY_AUD || 'your-data-lake.example.com',
+    aud: GATEWAY_AUD,
     iat: now,
     exp: now + ttl,
   };
@@ -300,11 +334,11 @@ function signT2Jwt(sub, ttl = 3600) {
   return `${signingInput}.${b64url(sig)}`;
 }
 
-async function gwLake(method, collection, id, ownerId, body, attempt = 0) {
+async function gwLake(method, collection, id, ownerId, body, attempt = 0, query = '') {
   const base = `/api/t2data/c/${encodeURIComponent(collection)}`;
   const url = id
     ? `${GATEWAY_BASE}${base}/${encodeURIComponent(id)}`
-    : `${GATEWAY_BASE}${base}`;
+    : `${GATEWAY_BASE}${base}${query}`;
   const token = signT2Jwt(ownerId || 'cloudlet-system');
   const headers = {
     'content-type': 'application/json',
@@ -323,7 +357,7 @@ async function gwLake(method, collection, id, ownerId, body, attempt = 0) {
     return { status, ok, json: async () => { try { return await res.json(); } catch { return {}; } } };
   } catch (e) {
     // 首次可能因微家事网关/数据湖冷启动超时，重试一次
-    if (attempt < 1) return gwLake(method, collection, id, ownerId, body, attempt + 1);
+    if (attempt < 1) return gwLake(method, collection, id, ownerId, body, attempt + 1, query);
     return { status: 504, ok: false, json: async () => ({ error: 'gateway timeout' }) };
   } finally {
     clearTimeout(timer);
@@ -342,17 +376,88 @@ async function lakeUpsert(collection, id, doc, ownerId) {
 }
 
 /** 列出某集合全部（管理后台用；统一把行规整为 doc 对象返回） */
-async function lakeList(collection, ownerId) {
+async function lakeList(collection, ownerId, allOwners = false) {
   if (MEMORY_MODE) {
     const items = [];
-    for (const [k, v] of mem) if (k.startsWith(`${collection}/`) && v.doc) items.push(v.doc);
+    for (const [k, v] of mem) {
+      if (!k.startsWith(`${collection}/`) || !v.doc) continue;
+      // 内存模式没有「按密钥自动过滤 owner」这层，必须显式过滤，
+      // 否则清理快照时会把别的账号的历史一起删掉。
+      if (!allOwners && ownerId && v.owner_openid !== ownerId) continue;
+      items.push(v.doc);
+    }
     return items;
   }
-  const r = await lake('GET', collection, null, ownerId || 'admin');
+  // 数据湖的列表默认是 owner=me（即令牌 sub 自己的行）。管理员要跨账号看列表，
+  // 必须显式带 owner=all，否则永远返回空数组（曾经导致管理后台账号数恒为 0）。
+  const r = await lake('GET', collection, null, ownerId || 'admin', undefined, allOwners ? '?owner=all' : '');
   if (!r.ok) return [];
   const data = await r.json().catch(() => ({}));
   const rows = data.rows || data.items || data.list || (Array.isArray(data) ? data : []);
   return rows.map((x) => (x && x.doc ? x.doc : x));
+}
+
+// ---------- 覆盖前快照 ----------
+/** owner → 上一次快照时间。重启后清空，最多多存一份，不影响正确性。 */
+const snapshotLastAt = new Map();
+/** owner → 串行队列，避免并发写档时快照互相穿插 */
+const snapshotQueues = new Map();
+
+/** 只保留最近 HISTORY_KEEP 份 */
+async function pruneSnapshots(owner) {
+  if (!(HISTORY_KEEP > 0)) return;
+  const items = (await lakeList(COLLECTION_HISTORY, owner)).filter((x) => x && x.id);
+  if (items.length <= HISTORY_KEEP) return;
+  const older = items
+    .sort((a, b) => (Number(b.savedAt) || 0) - (Number(a.savedAt) || 0))
+    .slice(HISTORY_KEEP);
+  for (const old of older) {
+    const r = await lake('DELETE', COLLECTION_HISTORY, old.id, owner);
+    if (!r.ok && r.status !== 404) console.warn('[save-history] 清理失败', old.id, r.status);
+  }
+}
+
+/**
+ * 把「即将被覆盖的那份存档」存进历史集合。
+ * @param owner   账号 ID
+ * @param prevRow 覆盖前读到的 saves 行（{doc, updated_at}）
+ * @param force   跳过最小间隔限制（恢复存档时用）
+ *
+ * 全程 fire-and-forget：写档主流程只多了一次并行 GET，快照本身不占响应时间。
+ * 失败只打日志，绝不影响玩家存档。
+ */
+function queueSnapshot(owner, prevRow, force = false) {
+  const job = async () => {
+    const prevDoc = prevRow && prevRow.doc;
+    if (!prevDoc || typeof prevDoc !== 'object') return;
+    const now = Date.now();
+    if (!force && now - (snapshotLastAt.get(owner) || 0) < SNAPSHOT_MIN_INTERVAL_MS) return;
+
+    const id = `${owner}-${now}-${crypto.randomBytes(3).toString('hex')}`;
+    const entry = {
+      id,
+      owner,
+      savedAt: now,                                  // 快照生成时间
+      replacedAt: Number(prevRow.updated_at) || 0,   // 被覆盖那份的写入时间
+      level: Number(prevDoc.level) || 0,
+      exp: Number(prevDoc.exp) || 0,
+      bytes: Buffer.byteLength(JSON.stringify(prevDoc)),
+      doc: prevDoc,
+    };
+    const w = await lake('POST', COLLECTION_HISTORY, undefined, owner, { id, doc: entry });
+    if (!w.ok) {
+      console.warn('[save-history] 快照写入失败', owner.slice(-8), w.status);
+      return;
+    }
+    snapshotLastAt.set(owner, now);
+    await pruneSnapshots(owner);
+  };
+
+  const prev = snapshotQueues.get(owner) || Promise.resolve();
+  const next = prev.then(job).catch((e) => console.warn('[save-history] 快照异常', owner.slice(-8), e?.message));
+  snapshotQueues.set(owner, next);
+  next.finally(() => { if (snapshotQueues.get(owner) === next) snapshotQueues.delete(owner); });
+  return next;
 }
 
 // ---------- 账号业务 ----------
@@ -401,15 +506,27 @@ export async function registerUser(username, password) {
   return { status: 200, token, profile: profileOf(accountDoc) };
 }
 
+/**
+ * 上游故障的统一回应。
+ * 关键点：403/502/超时属于「基础设施不可用」，绝不能伪装成「用户名或密码错误」——
+ * 否则一次配置错误会被误判成用户忘记密码，排障方向完全跑偏。
+ */
+function upstreamUnavailable(status) {
+  return { error: `数据服务暂不可用（上游 HTTP ${status}），请稍后重试`, status: 502 };
+}
+
 export async function loginUser(username, password) {
   const norm = String(username || '').toLowerCase().trim();
   const uname = await lake('GET', COLLECTION_USERNAMES, norm, norm);
-  if (uname.status !== 200) return { error: '用户名或密码错误', status: 401 };
-  const { accountId } = uname.json ? (await uname.json()).doc : {};
+  // 404 = 用户名不存在，按凭据错误处理（不泄露账号是否存在）
+  if (uname.status === 404) return { error: '用户名或密码错误', status: 401 };
+  if (uname.status !== 200) return upstreamUnavailable(uname.status);
+  const { accountId } = (await uname.json()).doc || {};
   if (!accountId) return { error: '用户名或密码错误', status: 401 };
 
   const acc = await lake('GET', COLLECTION_ACCOUNTS, accountId, accountId);
-  if (acc.status !== 200) return { error: '用户名或密码错误', status: 401 };
+  if (acc.status === 404) return { error: '用户名或密码错误', status: 401 };
+  if (acc.status !== 200) return upstreamUnavailable(acc.status);
   const row = await acc.json();
   if (row.owner_openid !== accountId) return { error: 'not found', status: 401 };
   const doc = row.doc;
@@ -430,7 +547,11 @@ export async function profileFromToken(authHeader) {
   const claims = verifyJWT(m?.[1]);
   if (!claims || !claims.accountId) return null;
   const acc = await lake('GET', COLLECTION_ACCOUNTS, claims.accountId, claims.accountId);
-  if (acc.status !== 200) return null;
+  if (acc.status === 404) return null;
+  if (acc.status !== 200) {
+    // 上游故障 ≠ 令牌失效：这里若返回 null，前端会把用户静默登出且看不到真实原因
+    throw Object.assign(new Error(`数据服务暂不可用（上游 HTTP ${acc.status}）`), { status: 502 });
+  }
   const row = await acc.json();
   if (row.owner_openid !== claims.accountId) return null;
   return profileOf(row.doc);
@@ -509,6 +630,11 @@ function requireAdmin(req) {
 
 // ---------- 路由 ----------
 async function handleSave(req, res, cors) {
+  // 维护期只读开关：CLOUD_READONLY=1 时拒绝任何写入，冻结云端存档，防止客户端互殴覆盖。
+  // 读取/拉取（GET/POST）不受影响，客户端仍可下载核对。解除时置 0 或删掉变量即可。
+  if (process.env.CLOUD_READONLY === '1' && req.method !== 'GET' && req.method !== 'POST') {
+    return send(res, 423, { error: '云端维护中（只读），暂不接受保存', readonly: true }, cors);
+  }
   const url = req.urlObj;
   let owner = url.searchParams.get('owner') ?? url.searchParams.get('device') ?? '';
   const token = authToken(req);
@@ -526,7 +652,9 @@ async function handleSave(req, res, cors) {
 
   const path = `${COLLECTION_SAVES}/${encodeURIComponent(owner)}`;
 
-  if (req.method === 'GET') {
+  // POST 与 GET 共用拉取分支：部分 CDN 会无视 Cache-Control 缓存 GET /api/save 的陈旧响应，
+  // 前端因此改用 POST 拉档（POST 永不被缓存）。决策见 docs/sync-incident-and-redesign.md。
+  if (req.method === 'GET' || req.method === 'POST') {
     const r = await lake('GET', COLLECTION_SAVES, owner, owner);
     if (r.status === 404) return send(res, 404, { error: 'not found' }, cors);
     if (!r.ok) return send(res, 502, { error: `lake ${r.status}` }, cors);
@@ -547,7 +675,12 @@ async function handleSave(req, res, cors) {
     }
 
     // 账号模式下做双等级处理：游戏等级合理性校验 + 会员等级自动晋升
+    let accP = null;
+    let prevRow = null;
     if (mode === 'account') {
+      // 覆盖前先读旧存档：与下面的账号读取并行发出，不额外增加一次串行往返。
+      // 必须在 PUT 之前拿到，否则读到的是刚写进去的新值，快照就失去意义。
+      const prevP = lake('GET', COLLECTION_SAVES, owner, owner);
       const acc = await lake('GET', COLLECTION_ACCOUNTS, owner, owner);
       if (acc.status !== 200) return send(res, 502, { error: `lake ${acc.status}` }, cors);
       const row = await acc.json();
@@ -565,15 +698,33 @@ async function handleSave(req, res, cors) {
       doc.exp = v.exp;
       const playSeconds = parsed.doc?.stats?.playSeconds || 0;
       doc.memberTier = Math.max(Number(doc.memberTier) || 1, autoTier(playSeconds));
-      const ur = await lake('PUT', COLLECTION_ACCOUNTS, owner, owner, { doc });
-      if (!ur.ok) return send(res, 502, { error: `lake ${ur.status}` }, cors);
+      // 账号镜像更新与存档写入相互独立，并行发起省去一次上游往返（约 2.5s）。
+      // 这里只发起、不 await，等存档写入完成后再取结果。
+      accP = lake('PUT', COLLECTION_ACCOUNTS, owner, owner, { doc });
+
+      const prevRes = await prevP;
+      if (prevRes.status === 200) {
+        const prevJson = await prevRes.json();
+        if (prevJson && prevJson.owner_openid === owner && prevJson.doc) {
+          // 必须深拷贝：内存模式下 GET 返回的是存储行的活引用，随后的 PUT 会就地替换
+          // 其中的 doc，直接持有引用会让快照存成「覆盖后的新值」，失去回滚意义。
+          prevRow = { doc: JSON.parse(JSON.stringify(prevJson.doc)), updated_at: prevJson.updated_at };
+        }
+      }
     }
 
+    // 写存档（与账号镜像更新并行）
     let r = await lake('PUT', COLLECTION_SAVES, owner, owner, { doc: parsed.doc });
     if (r.status === 404) {
       r = await lake('POST', COLLECTION_SAVES, undefined, owner, { id: owner, doc: parsed.doc });
     }
+    if (accP) {
+      const ur = await accP;
+      if (!ur.ok) return send(res, 502, { error: `lake ${ur.status}` }, cors);
+    }
     if (!r.ok) return send(res, 502, { error: `lake ${r.status}` }, cors);
+    // 写成功后再落快照，异步执行，不占本次响应时间
+    if (prevRow) queueSnapshot(owner, prevRow);
     return send(res, 200, { ok: true, updatedAt: Date.now() }, cors);
   }
 
@@ -594,7 +745,7 @@ async function handleAdmin(req, res, cors) {
   const id = parts[3] || '';
 
   if (sub === 'stats' && req.method === 'GET') {
-    const accounts = await lakeList(COLLECTION_ACCOUNTS, 'admin');
+    const accounts = await lakeList(COLLECTION_ACCOUNTS, 'admin', true);
     const now = Date.now();
     const week = now - 7 * 24 * 3600 * 1000;
     const stats = {
@@ -610,7 +761,7 @@ async function handleAdmin(req, res, cors) {
       const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
       const size = Math.min(100, Math.max(1, Number(url.searchParams.get('size')) || 20));
       const q = (url.searchParams.get('q') || '').toLowerCase().trim();
-      const all = await lakeList(COLLECTION_ACCOUNTS, 'admin');
+      const all = await lakeList(COLLECTION_ACCOUNTS, 'admin', true);
       const summary = all
         .map((a) => ({
           accountId: a.accountId,
@@ -669,6 +820,76 @@ async function handleAdmin(req, res, cors) {
     }
   }
 
+  // ---------- 存档历史（覆盖前快照）：/api/admin/saves/{accountId}/... ----------
+  if (sub === 'saves') {
+    if (!UUID_V4.test(id)) return send(res, 400, { error: 'invalid account id' }, cors);
+    const action = parts[4] || '';
+
+    // 列出该账号最近的快照（不返回正文，避免几十 KB × N 撑爆响应）
+    if (action === 'history' && req.method === 'GET') {
+      const items = (await lakeList(COLLECTION_HISTORY, id))
+        .filter((x) => x && x.id)
+        .map((x) => ({
+          id: x.id,
+          savedAt: x.savedAt || 0,
+          replacedAt: x.replacedAt || 0,
+          level: x.level,
+          exp: x.exp,
+          bytes: x.bytes,
+        }))
+        .sort((a, b) => b.savedAt - a.savedAt);
+      return send(res, 200, { total: items.length, keep: HISTORY_KEEP, items }, cors);
+    }
+
+    // 回滚到指定快照：先把「当前档」也快照一份，恢复动作本身也可撤销
+    if (action === 'restore' && req.method === 'POST') {
+      let body = {};
+      try { body = JSON.parse(await readBody(req)); } catch { /* ignore */ }
+      if (!body.historyId) return send(res, 400, { error: 'historyId required' }, cors);
+
+      const hr = await lake('GET', COLLECTION_HISTORY, body.historyId, id);
+      if (hr.status !== 200) return send(res, 404, { error: 'snapshot not found' }, cors);
+      const snap = (await hr.json()).doc;
+      if (!snap || typeof snap.doc !== 'object' || snap.doc === null) {
+        return send(res, 400, { error: 'bad snapshot' }, cors);
+      }
+
+      const cur = await lake('GET', COLLECTION_SAVES, id, id);
+      if (cur.status === 200) {
+        const crow = await cur.json();
+        if (crow && crow.doc) await queueSnapshot(id, crow, true);
+      }
+
+      let w = await lake('PUT', COLLECTION_SAVES, id, id, { doc: snap.doc });
+      if (w.status === 404) {
+        w = await lake('POST', COLLECTION_SAVES, undefined, id, { id, doc: snap.doc });
+      }
+      if (!w.ok) return send(res, 502, { error: `lake ${w.status}` }, cors);
+
+      // 同步账号镜像的等级，否则客户端下次推送会被「等级跳变」判 400
+      const ar = await lake('GET', COLLECTION_ACCOUNTS, id, id);
+      if (ar.status === 200) {
+        const arow = await ar.json();
+        if (arow && arow.doc) {
+          const doc = arow.doc;
+          doc.level = Number(snap.doc.level) || doc.level;
+          doc.exp = Number(snap.doc.exp) || 0;
+          doc.synced = true;
+          await lake('PUT', COLLECTION_ACCOUNTS, id, id, { doc });
+        }
+      }
+      return send(res, 200, {
+        ok: true,
+        restoredFrom: snap.id || body.historyId,
+        savedAt: snap.savedAt || 0,
+        level: snap.doc.level,
+        exp: snap.doc.exp,
+      }, cors);
+    }
+
+    return send(res, 404, { error: 'not found' }, cors);
+  }
+
   return send(res, 404, { error: 'not found' }, cors);
 }
 
@@ -699,7 +920,13 @@ const server = http.createServer(async (req, res) => {
     const p = req.urlObj.pathname;
 
     if (p === '/api/health') {
-      return send(res, 200, { ok: true, mode: GATEWAY_MODE ? 'gateway' : (T4_MODE ? 't4' : (MEMORY_MODE ? 'memory' : 'raw')), memory: MEMORY_MODE }, cors);
+      return send(res, 200, {
+        ok: true,
+        mode: GATEWAY_MODE ? 'gateway' : (T4_MODE ? 't4' : (MEMORY_MODE ? 'memory' : 'raw')),
+        memory: MEMORY_MODE,
+        // 便于一眼核对 T2 令牌的 aid 是否指向正确的 app（历史上配错会表现为登录始终失败）
+        ...(GATEWAY_MODE ? { app: GATEWAY_APP_ID } : {}),
+      }, cors);
     }
 
     if (p === '/api/auth/register') {
@@ -724,6 +951,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/save') {
+      // 请求日志：包裹 res.end，记录方法/owner/状态/字节/耗时，便于直读排查同步问题
+      const _t0 = Date.now();
+      const _m = req.method;
+      const _o = (new URL(req.url, 'http://localhost').searchParams.get('owner') || '').slice(-8);
+      const _origEnd = res.end.bind(res);
+      res.end = (chunk, ...rest) => {
+        const ms = Date.now() - _t0;
+        const bytes = chunk && chunk.length ? chunk.length : 0;
+        console.log(`[save] ${_m} owner=...${_o} status=${res.statusCode} bytes=${bytes} ${ms}ms`);
+        return _origEnd(chunk, ...rest);
+      };
       return handleSave(req, res, cors);
     }
 

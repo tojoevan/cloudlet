@@ -1,5 +1,6 @@
 import type { GameState, BuildingType, FactoryType } from './types';
-import { firstFreeCell } from './grid';
+import { firstFreeCell, canPlace } from './grid';
+import { SQUARE_N } from './island';
 import { BUILDING_FOOTPRINT, FACTORY_FOOTPRINT } from '../data/buildings';
 
 let _seq = 1;
@@ -21,6 +22,37 @@ export function seedSquareTestLayout(
   rng: () => number = Math.random,
 ): void {
   if (state.buildings.length > 0 || state.factories.length > 0) return;
+
+  // 道路：先铺一段「连通路网」演示各种路口（十字/丁字/拐弯/直路/末端），
+  // 放在最前，确保这些格子不被后续建筑占掉。用 canPlace 跳过已被占用的格。
+  const bx = 2;
+  const bz = 2;
+  // 相对 (bx,bz) 的连通路型；(0,0) 为十字（上下左右都有路），(−1,0)/(1,0) 因各自
+  // 多一个纵向邻居而成为丁字/拐弯，[0,−1]/[0,−2] 是向上的直路，两端为末端。
+  const ROAD_PATTERN: Array<[number, number]> = [
+    [-2, 0], [-1, 0], [0, 0], [1, 0], [2, 0], // 横向主线
+    [0, -1], [0, -2], [0, 1], // (0,0) 上/下直路分支 → (0,0) 成真正十字
+    [1, -1], // 给 (1,0) 一个「上」邻居 → (1,0) 成十字 / 丁字
+    [-1, -1], // 给 (-1,0) 一个上邻居 → 丁字 / 拐弯
+    [1, 1], // 给 (1,0) 一个下邻居 → 丁字 / 拐弯
+  ];
+  for (const [dx, dz] of ROAD_PATTERN) {
+    const gx = bx + dx;
+    const gz = bz + dz;
+    if (gx < 0 || gz < 0 || gx >= SQUARE_N || gz >= SQUARE_N) continue;
+    if (!canPlace(state, gx, gz, 1, 1)) continue;
+    state.buildings.push({
+      id: uid('b'),
+      type: 'road',
+      seed: ri(rng, 1e9),
+      level: 1,
+      gx,
+      gz,
+      w: 1,
+      h: 1,
+      rot: 0,
+    });
+  }
 
   // 住宅：约 8 栋，部分扩成 1×2 / 2×1，并随机 1~3 层
   for (let i = 0; i < 8; i++) {
@@ -65,24 +97,6 @@ export function seedSquareTestLayout(
       gz: spot.gz,
       w: fp.w,
       h: fp.h,
-      rot: 0,
-    });
-  }
-
-  // 道路：撒若干段，连成路网感（与建筑相邻也行）
-  const roadN = 6 + ri(rng, 6);
-  for (let i = 0; i < roadN; i++) {
-    const spot = firstFreeCell(state, 1, 1);
-    if (!spot) break;
-    state.buildings.push({
-      id: uid('b'),
-      type: 'road',
-      seed: ri(rng, 1e9),
-      level: 1,
-      gx: spot.gx,
-      gz: spot.gz,
-      w: 1,
-      h: 1,
       rot: 0,
     });
   }

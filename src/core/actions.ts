@@ -284,9 +284,40 @@ export function build(
     w: fp.w,
     h: fp.h,
     rot,
+    cost,
   });
   recordBuilding(state, type);
   return { ok: true, data: { cost } };
+}
+
+/** 拆除某建筑预计返还的金币（实际建造价的一半）。 */
+export function demolishRefund(state: GameState, id: string): number {
+  const b = state.buildings.find((x) => x.id === id);
+  if (!b) return 0;
+  const def = BUILDINGS[b.type];
+  // 实际花费：优先用建造时记录的成本；旧档无记录则按「含自己在内的拥有数」估算基础价
+  const ownedBefore = state.buildings.filter((x) => x.type === b.type).length;
+  const paid =
+    b.cost ?? Math.floor(def.cost * Math.pow(def.costGrowth, Math.max(0, ownedBefore - 1)));
+  return Math.floor(paid / 2);
+}
+
+/**
+ * 拆除一栋社区建筑，返还其建造费用的一半。
+ * 仅作用于 buildings（社区建筑，含道路）；工厂不在其中，避免误拆生产线。
+ */
+export function demolish(
+  state: GameState,
+  id: string,
+): ActionResult<{ refund: number; name: string }> {
+  const idx = state.buildings.findIndex((b) => b.id === id);
+  if (idx < 0) return fail('建筑不存在');
+  const b = state.buildings[idx];
+  const def = BUILDINGS[b.type];
+  const refund = demolishRefund(state, id);
+  state.coins += refund;
+  state.buildings.splice(idx, 1);
+  return { ok: true, data: { refund, name: def.name } };
 }
 
 /** 升级一栋已有建筑到下一等级的成本（比新建便宜，鼓励就地升级、省空间） */

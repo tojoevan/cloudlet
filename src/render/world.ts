@@ -36,8 +36,14 @@ const POND_RADIUS = 1.4;
 /**
  * 田块位置用规整矩形网格排布，外轮廓是圆角矩形（田块本身是圆角方块）。
  * index→坐标必须稳定（存档按 index 记作物），所以存档兼容。
+ * 圆岛：居中在 FARM_CENTER 的矩形簇；方岛：落在网格中心 4×4（与建筑同套格子）。
  */
-export function plotPosition(index: number): THREE.Vector3 {
+export function plotPosition(index: number, shape: IslandShape = 'round'): THREE.Vector3 {
+  if (shape === 'square') {
+    const c = squarePlotCell(index);
+    const w = cellToWorld(c.gx, c.gz);
+    return new THREE.Vector3(w.x, 0, w.z);
+  }
   const c = index % GRID_COLS;
   const r = Math.floor(index / GRID_COLS);
   return new THREE.Vector3(
@@ -88,6 +94,10 @@ export class World {
   pickables: THREE.Object3D[] = [];
   /** 当前激活岛形状：圆岛用极坐标布局，方岛用网格布局 */
   islandShape: IslandShape = 'round';
+  /** 取某地块的世界坐标（按当前岛形状映射），供浮层跟随用 */
+  plotWorldPos(index: number): THREE.Vector3 {
+    return plotPosition(index, this.islandShape);
+  }
   /** 方岛可点击落格的透明拾取面（建造模式才可见），main 用它们做射线检测 */
   gridCells: THREE.Mesh[] = [];
   /** 放置模式下的半透明预览体（绿=可放，红=不可放）。main 控制显隐与落点。 */
@@ -112,6 +122,8 @@ export class World {
   private bob = 0;
   private pond: THREE.Group | null = null;
   private lowSpec = false;
+  /** 路网签名：任意路块增删都变，变化即让所有路段重算邻接（保证连贯） */
+  private lastRoadSig = '';
   /** 随风轻摆的对象（树冠、草丛、作物），每帧给一点正弦旋转 */
   private swayers: { obj: THREE.Object3D; phase: number; amp: number; speed: number }[] = [];
 
@@ -180,6 +192,7 @@ export class World {
     this.plotTiles = [];
     this.pickables = [];
     this.gridCells = [];
+    this.lastRoadSig = '';
     this.clearGhost();
   }
 
@@ -379,7 +392,7 @@ export class World {
   private buildFarm(): void {
     for (let i = 0; i < PLOT_COUNT; i++) {
       const tile = makePlot(i);
-      tile.position.copy(plotPosition(i));
+      tile.position.copy(plotPosition(i, this.islandShape));
       this.root.add(tile);
       this.plotTiles.push(tile);
       this.pickables.push(tile);
@@ -460,15 +473,9 @@ export class World {
       }
 
       const mesh = makeCrop(wantCrop, i * 7919 + 13);
-      const pos =
-        this.islandShape === 'square'
-          ? (() => {
-              const c = squarePlotCell(i);
-              const w = cellToWorld(c.gx, c.gz);
-              return new THREE.Vector3(w.x, 0.07, w.z);
-            })()
-          : plotPosition(i);
+      const pos = plotPosition(i, this.islandShape);
       mesh.group.position.copy(pos);
+      mesh.group.position.y = 0.07; // 作物略高于田面，避免与地块 z-fighting
       this.root.add(mesh.group);
       this.crops[i] = { mesh, crop: wantCrop };
       this.swayers.push({ obj: mesh.group, phase: (i * 1.3) % (Math.PI * 2), amp: 0.07, speed: 2.0 });
@@ -478,12 +485,55 @@ export class World {
   private syncBuildings(state: GameState): void {
     const seen = new Set<string>();
     const onSquare = this.islandShape === 'square';
+
+    // 方岛：先收集所有路格，用于自动拼接（十字/T/拐弯/直路）。
+    const roadCells = new Set<string>();
+    if (onSquare) {
+      for (const b of state.buildings) {
+        if (b.type === 'road' && b.gx != null && b.gz != null) roadCells.add(`${b.gx},${b.gz}`);
+      }
+    }
+    // 路网签名变化（增删任意路块）→ 让所有已建路段重算邻接，保证整网连贯
+    const roadSig = [...roadCells].sort().join('|');
+    if (roadSig !== this.lastRoadSig) {
+      for (const [id, group] of this.built) {
+        const b = state.buildings.find((x) => x.id === id);
+        if (b && b.type === 'road') {
+          this.root.remove(group);
+          // 仅释放几何体；颜色材质是 mat() 共享缓存，跨路段复用，不能 dispose
+          group.traverse((o) => {
+            const m = o as THREE.Mesh;
+            if (m.geometry) m.geometry.dispose();
+          });
+          const pi = this.pickables.indexOf(group);
+          if (pi >= 0) this.pickables.splice(pi, 1);
+          this.built.delete(id);
+        }
+      }
+      this.lastRoadSig = roadSig;
+    }
+
     state.buildings.forEach((b, i) => {
       seen.add(b.id);
-      if (this.built.has(b.id)) return;
+      const existing = this.built.get(b.id);
+      if (existing) {
+        // 数组下标会因删除而变，每次同步都刷新标注，保证拾取索引始终对应当前建筑
+        existing.userData.buildingId = i;
+        return;
+      }
       const w = b.w ?? 1;
       const h = b.h ?? 1;
-      const { group, lights } = makeBuilding(b.type, b.seed, b.level ?? 1, w, h, onSquare);
+      // 方岛道路：按上下左右邻居算出自动拼接 mask（N=1 E=2 S=4 W=8）
+      let roadMask = -1;
+      if (b.type === 'road' && onSquare && b.gx != null && b.gz != null) {
+        let m = 0;
+        if (roadCells.has(`${b.gx},${b.gz - 1}`)) m |= 1;
+        if (roadCells.has(`${b.gx + 1},${b.gz}`)) m |= 2;
+        if (roadCells.has(`${b.gx},${b.gz + 1}`)) m |= 4;
+        if (roadCells.has(`${b.gx - 1},${b.gz}`)) m |= 8;
+        roadMask = m;
+      }
+      const { group, lights } = makeBuilding(b.type, b.seed, b.level ?? 1, w, h, onSquare, roadMask);
       let pos: THREE.Vector3;
       if (onSquare) {
         // 方岛：按网格坐标落位；缺少坐标（理论上不会）则就地打包补上
@@ -506,14 +556,20 @@ export class World {
         group.rotation.z = 0;
       }
       group.position.copy(pos);
+      // 标注建筑在 buildings 数组中的下标，供点击拾取回溯到具体建筑
+      group.userData.buildingId = i;
       this.root.add(group);
       this.built.set(b.id, group);
+      // 建筑可拾取：拆除模式下射线命中后能回溯到具体建筑（factory 同样处理）
+      this.pickables.push(group);
       this.windowLights.push(...lights);
     });
 
     for (const [id, group] of this.built) {
       if (seen.has(id)) continue;
       this.root.remove(group);
+      const pi = this.pickables.indexOf(group);
+      if (pi >= 0) this.pickables.splice(pi, 1);
       this.built.delete(id);
     }
   }
@@ -522,6 +578,8 @@ export class World {
   refreshBuilding(id: string): void {
     const g = this.built.get(id);
     if (!g) return;
+    const pi = this.pickables.indexOf(g);
+    if (pi >= 0) this.pickables.splice(pi, 1);
     this.root.remove(g);
     g.traverse((o) => {
       const m = o as THREE.Mesh;
@@ -684,7 +742,7 @@ export class World {
     const has = this.ripeRings[i];
     if (ripe && !has) {
       const ring = makePlotRing(1.05, 0xffd166);
-      ring.position.copy(plotPosition(i));
+      ring.position.copy(plotPosition(i, this.islandShape));
       ring.position.y = 0.09;
       this.root.add(ring);
       this.ripeRings[i] = ring;
@@ -734,7 +792,7 @@ export class World {
       return;
     }
     this.hoverRing.visible = true;
-    this.hoverRing.position.copy(plotPosition(plotIndex));
+    this.hoverRing.position.copy(plotPosition(plotIndex, this.islandShape));
     this.hoverRing.position.y = 0.1;
   }
 

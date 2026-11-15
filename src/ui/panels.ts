@@ -159,11 +159,23 @@ export function openBuildPanel(
     onBuildFactory: (t: FactoryType) => void;
     onUpgrade: (t: BuildingType) => void;
     onSwitchIsland: (id: string) => void;
-  onSeedTest: () => void;
+    onSeedTest: () => void;
+    /** 进入拆除模式：关闭面板后点选建筑即可拆除并返还一半费用 */
+    onDemolish: () => void;
   },
 ): void {
   const body = el('div');
   const pop = populationOf(state);
+
+  // 拆除：进入拆除模式（关闭面板后点选建筑）。返还一半建造费用，避免误操作有二次确认
+  const demoRow = el('div', 'row');
+  const demoBtn = el('button', 'btn ghost danger', '拆除建筑（返还一半费用）');
+  demoBtn.addEventListener('click', () => {
+    ctx.onDemolish();
+    closeModal();
+  });
+  demoRow.appendChild(demoBtn);
+  body.appendChild(demoRow);
 
   // 岛屿切换：两座独立岛，各有自己的建筑/农田/工厂
   body.appendChild(el('p', 'hint', '岛屿'));
@@ -377,6 +389,7 @@ export interface SettingsHandlers {
   /** 性能监控浮层开关 */
   onTogglePerf: (on: boolean) => void;
   onExport: () => string;
+  onExportFile: () => void;
   onImport: (code: string) => void;
   onSync: () => void;
   /** 清空本地存档并刷新页面，回到初始小岛（云端若开启会重新拉取） */
@@ -451,11 +464,25 @@ export function openSettingsPanel(
   body.appendChild(help);
 
   const chRow = el('div', 'seg');
-  const channels: Settings['channel'][] = ['citypop', 'lofi', 'ambient', 'radio', 'off'];
+  const channels: Settings['channel'][] = [
+    'citypop',
+    'lofi',
+    'ambient',
+    'guitar',
+    'country',
+    'jazz',
+    'shuffle',
+    'radio',
+    'off',
+  ];
   const labels: Record<Settings['channel'], string> = {
     citypop: 'City Pop',
     lofi: 'Lo-fi',
     ambient: '环境音',
+    guitar: '原声吉他',
+    country: '乡村',
+    jazz: '爵士',
+    shuffle: '随机轮流',
     radio: '外接电台',
     off: '静音',
   };
@@ -569,11 +596,30 @@ export function openSettingsPanel(
     void navigator.clipboard?.writeText(code).catch(() => undefined);
     toast('存档码已复制，粘到另一台设备即可');
   });
+  const expFile = el('button', 'btn sm', '导出文件');
+  expFile.addEventListener('click', () => h.onExportFile());
   const imp = el('button', 'btn sm', '导入存档码');
   imp.addEventListener('click', () => {
-    const code = window.prompt('粘贴存档码');
+    const code = window.prompt('粘贴存档码（也可直接粘贴 .json 文件内容）');
     if (code) h.onImport(code);
   });
+  const impFile = el('button', 'btn sm', '导入文件');
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'application/json,.json';
+  fileInput.style.display = 'none';
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files?.[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? '');
+      h.onImport(text);
+      fileInput.value = '';
+    };
+    reader.readAsText(f);
+  });
+  impFile.addEventListener('click', () => fileInput.click());
   const sync = el('button', 'btn sm', '立即同步');
   sync.addEventListener('click', h.onSync);
   const reset = el('button', 'btn sm danger', '重置存档');
@@ -582,7 +628,7 @@ export function openSettingsPanel(
       h.onReset();
     }
   });
-  saveRow.append(exp, imp, sync, reset);
+  saveRow.append(exp, expFile, imp, impFile, fileInput, sync, reset);
   body.appendChild(saveRow);
   body.appendChild(
     el(

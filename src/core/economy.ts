@@ -29,6 +29,21 @@ export function expForLevel(level: number): number {
   return Math.floor(100 * Math.pow(level, 1.6));
 }
 
+/**
+ * 把经验归一化到当前等级容量内，并保证等级/经验字段合法。
+ * 后端存档校验要求 exp < expForLevel(level)（防作弊注入），
+ * 旧版遗留或异常路径可能让 exp 越界，推送前/加载后都规整一次，
+ * 避免云端以「等级数据异常」拒绝保存（表现为同步失败）。
+ */
+export function normalizeProgress(state: GameState): void {
+  if (!Number.isFinite(state.level) || state.level < 1) state.level = 1;
+  if (!Number.isFinite(state.exp) || state.exp < 0) state.exp = 0;
+  while (state.exp >= expForLevel(state.level)) {
+    state.exp -= expForLevel(state.level);
+    state.level += 1;
+  }
+}
+
 /** 仓库容量。跟着等级长，避免早期就被卡住。 */
 export function capacityOf(state: GameState): number {
   return 120 + state.level * 20;
