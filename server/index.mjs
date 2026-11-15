@@ -653,7 +653,8 @@ async function handleSave(req, res, cors) {
   const path = `${COLLECTION_SAVES}/${encodeURIComponent(owner)}`;
 
   // POST 与 GET 共用拉取分支：部分 CDN 会无视 Cache-Control 缓存 GET /api/save 的陈旧响应，
-  // 前端因此改用 POST 拉档（POST 永不被缓存）。决策见 docs/sync-incident-and-redesign.md。
+  // 前端因此改用 POST 拉档（POST 永不被缓存）。决策见本地复盘文档
+  // docs/private/sync-incident-and-redesign.md（内部资产，不入库）。
   if (req.method === 'GET' || req.method === 'POST') {
     const r = await lake('GET', COLLECTION_SAVES, owner, owner);
     if (r.status === 404) return send(res, 404, { error: 'not found' }, cors);
