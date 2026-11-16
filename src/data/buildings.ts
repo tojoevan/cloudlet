@@ -48,9 +48,41 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     body: 0xcdb89a, roof: 0xb59c7c, accent: 0xcdb89a,
     desc: '把房屋连起来，居民沿路散步',
   },
+  post: {
+    id: 'post', name: '邮局', cost: 2_400, costGrowth: 1.2,
+    pop: 0, prosperity: 4, reqPop: 18, unlockLevel: 5,
+    body: 0xfdf3e3, roof: 0x7fb7ab, accent: 0x9fd8ea,
+    desc: '信件从这里寄往别的浮岛',
+  },
+  garden: {
+    id: 'garden', name: '花园', cost: 4_200, costGrowth: 1.22,
+    pop: 0, prosperity: 7, reqPop: 26, unlockLevel: 7,
+    body: 0xd8ecc8, roof: 0x86c46b, accent: 0xf0687a,
+    desc: '花开的时候，居民都爱来坐坐',
+  },
+  flower: {
+    id: 'flower', name: '花店', cost: 3_200, costGrowth: 1.2,
+    pop: 0, prosperity: 5, reqPop: 30, unlockLevel: 8,
+    body: 0xfff0f2, roof: 0xef8b6a, accent: 0xf0687a,
+    desc: '门口永远摆着当天最新鲜的一束',
+  },
+  school: {
+    id: 'school', name: '学校', cost: 16_000, costGrowth: 1.24,
+    pop: 0, prosperity: 14, reqPop: 70, unlockLevel: 14,
+    body: 0xf7e9c8, roof: 0xd9714f, accent: 0x9fd8ea,
+    desc: '钟声一响，小镇就热闹起来',
+  },
+  hall: {
+    id: 'hall', name: '市政厅', cost: 40_000, costGrowth: 1.26,
+    pop: 0, prosperity: 22, reqPop: 110, unlockLevel: 20,
+    body: 0xfdf3e3, roof: 0x8aa7c9, accent: 0xffd45e,
+    desc: '小镇的心脏，屋顶上飘着旗子',
+  },
 };
 
-export const BUILDING_ORDER: BuildingType[] = ['house', 'cafe', 'park', 'fountain', 'road'];
+export const BUILDING_ORDER: BuildingType[] = [
+  'house', 'cafe', 'park', 'fountain', 'post', 'garden', 'flower', 'school', 'hall', 'road',
+];
 
 /** 方岛网格占地（单位：格）。住宅基础 1×1，可升级成 1×2 / 2×1；
  *  咖啡馆/公园/喷泉为 2×2 的点缀型；道路 1×1 可拼接。 */
@@ -59,6 +91,11 @@ export const BUILDING_FOOTPRINT: Record<BuildingType, { w: number; h: number }> 
   cafe: { w: 2, h: 2 },
   park: { w: 2, h: 2 },
   fountain: { w: 2, h: 2 },
+  post: { w: 1, h: 1 },
+  garden: { w: 2, h: 2 },
+  flower: { w: 1, h: 1 },
+  school: { w: 2, h: 2 },
+  hall: { w: 2, h: 2 },
   road: { w: 1, h: 1 },
 };
 

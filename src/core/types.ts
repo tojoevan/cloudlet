@@ -2,7 +2,17 @@ export type CropId = 'wheat' | 'corn' | 'carrot' | 'strawberry' | 'pumpkin' | 'c
 export type ProductId = 'bread' | 'butter' | 'jam' | 'wood' | 'milk';
 export type ItemId = CropId | ProductId;
 export type FactoryType = 'bakery' | 'dairy' | 'juice' | 'lumber' | 'ranch';
-export type BuildingType = 'house' | 'cafe' | 'park' | 'fountain' | 'road';
+export type BuildingType =
+  | 'house'
+  | 'cafe'
+  | 'park'
+  | 'fountain'
+  | 'road'
+  | 'post'
+  | 'garden'
+  | 'flower'
+  | 'school'
+  | 'hall';
 /** 岛屿形状：圆岛（极坐标布局）与方岛（网格布局）。以后可扩展更多空岛形态 */
 export type IslandShape = 'round' | 'square';
 export type RecipeId = `${FactoryType}:${string}`;

@@ -5,6 +5,7 @@ import { CELL } from '../../core/island';
 import type { BuildingType, FactoryType } from '../../core/types';
 import { mat, matOwn } from '../mat';
 import { getPalette, getHouses } from '../palette';
+import { makeFlowerBed, makeMailbox } from './props';
 import { mulberry32, range } from '../rng';
 import { makeTree } from './terrain';
 
@@ -365,6 +366,23 @@ export function makeParkBench(seed: number): THREE.Group {
   return g;
 }
 
+/**
+ * 把一栋建筑等比缩放到 w×h 格内。
+ * 旧实现用 (fw, 1, fd) 非等比缩放，房子在方岛上会被压扁/拉长；
+ * 这里按包围盒取统一的缩放系数，造型不失真。
+ */
+function fitToCell(group: THREE.Group, w: number, h: number): void {
+  const box = new THREE.Box3().setFromObject(group);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const targetW = w * CELL * 0.82;
+  const targetD = h * CELL * 0.82;
+  const sx = targetW / Math.max(0.001, size.x);
+  const sz = targetD / Math.max(0.001, size.z);
+  const k = Math.min(sx, sz);
+  group.scale.set(k, k, k);
+}
+
 export function makeBuilding(
   type: BuildingType,
   seed: number,
@@ -403,18 +421,20 @@ export function makeBuilding(
     g.scale.setScalar(1 + (level - 1) * 0.12);
     return { group: g, lights: [] };
   }
+  // 新增的市政/商业建筑：各有独立的构图，不再复用民宅外形
+  if (type === 'post' || type === 'flower' || type === 'garden' || type === 'school' || type === 'hall') {
+    const custom = makeTownBuilding(type, seed, level);
+    if (fit) fitToCell(custom.group, w, h);
+    return custom;
+  }
+
   // 住宅走随机配色；咖啡馆、公园、喷泉各有固定形象，别打乱
   let base: StructureMesh;
   if (type === 'house') base = makeHouse(seed, undefined, level);
   else base = makeHouse(seed, { body: def.body, roof: def.roof, accent: def.accent }, level);
 
-  // 方岛：把模型缩放到实际网格占地（w×h 格），避免压到邻格
-  if (fit) {
-    const BASE = 1.1;
-    const fw = (w * CELL * 0.82) / BASE;
-    const fd = (h * CELL * 0.82) / BASE;
-    base.group.scale.set(fw, 1, fd);
-  }
+  // 方岛：把模型等比缩放到实际网格占地（w×h 格），避免压到邻格
+  if (fit) fitToCell(base.group, w, h);
   return base;
 }
 
@@ -483,4 +503,169 @@ export function makeRoad(seed: number, mask = -1): StructureMesh {
   }
   g.userData.lights = [];
   return { group: g, lights: [] };
+}
+
+/**
+ * 市政 / 商业建筑。
+ * 与民宅的区别：它们要有"招牌式"的轮廓（钟楼、柱廊、拱门），
+ * 玩家扫一眼就能认出"这是学校/市政厅"，而不是又一栋房子。
+ */
+export function makeTownBuilding(
+  type: 'post' | 'flower' | 'garden' | 'school' | 'hall',
+  seed: number,
+  level = 1,
+): StructureMesh {
+  const def = BUILDINGS[type];
+  const rng = mulberry32(seed);
+  const g = new THREE.Group();
+  const lights: THREE.MeshStandardMaterial[] = [];
+  const pal = { body: def.body, roof: def.roof, accent: def.accent };
+
+  if (type === 'post') {
+    const house = makeHouse(seed, pal, 1);
+    g.add(house.group);
+    lights.push(...house.lights);
+    // 门口邮筒 + 一块木牌
+    const box = makeMailbox();
+    box.position.set(0.42, 0, 0.52);
+    box.rotation.y = -Math.PI / 5;
+    g.add(box);
+    const sign = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.16, 0.04), mat(pal.roof));
+    sign.position.set(0, 0.62, 0.62);
+    g.add(sign);
+  } else if (type === 'flower') {
+    const house = makeHouse(seed, pal, 1);
+    g.add(house.group);
+    lights.push(...house.lights);
+    // 条纹雨棚 + 门口三桶花
+    for (let i = 0; i < 5; i++) {
+      const seg = new THREE.Mesh(
+        new THREE.BoxGeometry(0.11, 0.03, 0.26),
+        mat(i % 2 ? 0xfdf3e3 : pal.roof),
+      );
+      seg.position.set(-0.26 + i * 0.13, 0.52, 0.62);
+      seg.rotation.x = -0.16;
+      g.add(seg);
+    }
+    const bucket = (x: number, color: number) => {
+      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.06, 0.14, 7), mat(0xb58a63));
+      pot.position.set(x, 0.07, 0.72);
+      g.add(pot);
+      for (let i = 0; i < 3; i++) {
+        const bloom = new THREE.Mesh(new THREE.IcosahedronGeometry(0.05, 0), mat(color));
+        bloom.position.set(x + (rng() - 0.5) * 0.08, 0.18 + rng() * 0.04, 0.72 + (rng() - 0.5) * 0.08);
+        g.add(bloom);
+      }
+    };
+    bucket(-0.3, pal.accent);
+    bucket(0, 0xffd45e);
+    bucket(0.3, 0xc48ae0);
+  } else if (type === 'garden') {
+    // 花园：草坪 + 四角花坛 + 拱门；没有屋顶，靠"绿"和"花"认出来
+    const lawn = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.0, 0.1, 12), mat(def.body));
+    lawn.position.y = 0.05;
+    lawn.receiveShadow = true;
+    g.add(lawn);
+    // 十字小径
+    for (const [w2, d2, x, z] of [[1.5, 0.26, 0, 0], [0.26, 1.5, 0, 0]] as const) {
+      const path = new THREE.Mesh(new THREE.BoxGeometry(w2, 0.03, d2), mat(getPalette().path));
+      path.position.set(x, 0.105, z);
+      path.receiveShadow = true;
+      g.add(path);
+    }
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      const bed = makeFlowerBed(seed + i * 17);
+      bed.position.set(Math.cos(a) * 0.62, 0.1, Math.sin(a) * 0.62);
+      bed.scale.setScalar(0.72);
+      g.add(bed);
+    }
+    // 入口拱门
+    for (const x of [-0.34, 0.34]) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.62, 6), mat(getPalette().trunk));
+      post.position.set(x, 0.31, 0.78);
+      post.castShadow = true;
+      g.add(post);
+    }
+    const arch = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.06, 0.06), mat(getPalette().trunk));
+    arch.position.set(0, 0.64, 0.78);
+    g.add(arch);
+    for (let i = 0; i < 5; i++) {
+      const bloom = new THREE.Mesh(new THREE.IcosahedronGeometry(0.045, 0), mat(i % 2 ? pal.accent : 0xffd45e));
+      bloom.position.set(-0.3 + i * 0.15, 0.69, 0.78);
+      g.add(bloom);
+    }
+    g.scale.setScalar(1 + (level - 1) * 0.06);
+  } else if (type === 'school') {
+    const house = makeHouse(seed, pal, 2);
+    g.add(house.group);
+    lights.push(...house.lights);
+    // 钟楼：细高方塔 + 四坡小顶 + 铜钟
+    const tower = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.86, 0.34), mat(pal.body));
+    tower.position.set(0.55, 0.43 + 1.6 * 0.0, 0.0);
+    tower.position.y = 0.43;
+    tower.castShadow = true;
+    g.add(tower);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.34, 4), mat(pal.roof));
+    cap.position.set(0.55, 1.03, 0);
+    cap.rotation.y = Math.PI / 4;
+    cap.castShadow = true;
+    g.add(cap);
+    const bell = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.14, 6), mat(0xd9b45a));
+    bell.position.set(0.55, 0.82, 0.19);
+    bell.rotation.x = Math.PI;
+    g.add(bell);
+    // 旗杆
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.02, 1.1, 5), mat(0xf4f4f4));
+    pole.position.set(-0.62, 0.55, 0);
+    g.add(pole);
+    const flag = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.16, 0.02), mat(pal.accent));
+    flag.position.set(-0.49, 1.02, 0);
+    g.add(flag);
+  } else {
+    // 市政厅：台基 + 四柱门廊 + 山花 + 旗
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.16, 1.2), mat(getPalette().rock));
+    base.position.y = 0.08;
+    base.receiveShadow = true;
+    g.add(base);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.9, 1.0), mat(pal.body));
+    body.position.y = 0.61;
+    body.castShadow = true;
+    body.receiveShadow = true;
+    g.add(body);
+    // 门廊四柱
+    for (let i = 0; i < 4; i++) {
+      const x = -0.6 + i * 0.4;
+      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.86, 6), mat(0xf7f2e6));
+      col.position.set(x, 0.59, 0.56);
+      col.castShadow = true;
+      g.add(col);
+    }
+    // 柱廊顶 + 山花
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.1, 0.4), mat(0xf7f2e6));
+    lintel.position.set(0, 1.06, 0.42);
+    g.add(lintel);
+    const pediment = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.18, 3), mat(pal.roof));
+    pediment.rotation.z = Math.PI / 2;
+    pediment.rotation.y = Math.PI / 2;
+    pediment.position.set(0, 1.2, 0.42);
+    pediment.scale.set(1, 1, 0.55);
+    g.add(pediment);
+    // 屋顶：平顶 + 檐口
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.12, 1.12), mat(pal.roof));
+    roof.position.y = 1.12;
+    roof.castShadow = true;
+    g.add(roof);
+    // 旗杆与旗
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.024, 0.9, 5), mat(0xf4f4f4));
+    pole.position.set(0, 1.6, -0.2);
+    g.add(pole);
+    const flag = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.18, 0.02), mat(pal.accent));
+    flag.position.set(0.16, 1.94, -0.2);
+    g.add(flag);
+    g.scale.setScalar(1 + (level - 1) * 0.05);
+  }
+
+  g.userData.lights = lights;
+  return { group: g, lights };
 }
