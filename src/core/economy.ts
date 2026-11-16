@@ -84,13 +84,19 @@ export function consumeItems(state: GameState, lines: OrderLine[]): void {
 }
 
 /**
- * 小镇每秒金币产出估算，用于离线经营收入。
- * 是估算值而非精确模拟——离线收益不该比在线更划算。
+ * 小镇每秒的金币被动产出（居民消费与观光）。
+ *
+ * 标定目标：每小时 ≈ 活跃玩家订单收入的 10~20%，
+ * 让「开着页面看着它转」也有稳定进账，但不足以取代交付订单。
+ *
+ * 历史坑：原式直接把 (等级*0.5 + 繁荣*0.3 + 槽位*0.8) 当作「每秒」，
+ * 25 级的镇子能到 30+ 金币/秒，4 小时离线 ≈ 26 万金币（约 670 单订单），
+ * 与订单收益完全脱节，所以整体除以 60 换成合理量级。
  */
 export function incomeRate(state: GameState): number {
   const factoryPart = state.factories.reduce((s, f) => s + f.slots.length, 0) * 0.8;
   const prosperity = prosperityOf(state);
-  return state.level * 0.5 + prosperity * 0.3 + factoryPart;
+  return (state.level * 0.5 + prosperity * 0.3 + factoryPart) / 60;
 }
 
 export function prosperityOf(state: GameState): number {

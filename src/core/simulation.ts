@@ -7,6 +7,12 @@ import type { GameState, ItemId, OfflineReport, TickEvent } from './types';
 
 const HOUR = 3_600_000;
 
+/**
+ * 离线被动收益倍率。放置游戏「离开有奖励」，但只该是加速器：
+ * 1.3 倍于在线速率，配合离线时长上限，既奖励离开也不会让在线变得毫无意义。
+ */
+const OFFLINE_BONUS = 1.3;
+
 /** 离线收益时长上限：4 小时起，每级 +0.15 小时，封顶 12 小时 */
 export function offlineCapMs(level: number): number {
   return Math.min(4 + level * 0.15, 12) * HOUR;
@@ -66,13 +72,16 @@ export function advance(state: GameState, now: number): OfflineReport {
     }
   }
 
-  // 经营收入：居民消费与观光，按估算速率结算，离线打七折
-  const coins = Math.floor(incomeRate(state) * seconds * 0.7);
+  // 经营收入：居民消费与观光，按估算速率结算
+  const coins = Math.floor(incomeRate(state) * seconds * OFFLINE_BONUS);
   if (coins > 0) state.coins += coins;
 
   const ripePlots = state.plots.filter((p) => p.crop && p.readyAt <= now).length;
 
   state.savedAt = now;
+  // 离线收益已结算，把在线累积锚点归位，避免加载后重复计入这段时间
+  state.lastYieldAt = now;
+  state.yieldCarry = 0;
   return { seconds, produced, coins, ripePlots, capped };
 }
 
@@ -153,9 +162,24 @@ function autoFactory(state: GameState, now: number): number {
   return started;
 }
 
-/** 在线推进：只处理「到点完成」与「状态过期」，平时不做任何自动续产。 */
+/** 在线推进：被动收益按帧累积，并处理「到点完成」与「状态过期」。 */
 export function tick(state: GameState, now: number): TickEvent[] {
   const events: TickEvent[] = [];
+
+  // 在线被动收益：放置游戏「看着它转就有进账」的核心。
+  // 逐整金币进位，零头留在 yieldCarry 里，避免每帧取整把收益丢光。
+  // 单次最多补 10 分钟：切后台时 rAF 会暂停，不该把整段时间都算成在线陪伴。
+  const since = state.lastYieldAt && state.lastYieldAt > 0 ? state.lastYieldAt : now;
+  const dtSec = Math.max(0, Math.min((now - since) / 1000, 600));
+  if (dtSec > 0) {
+    const raw = incomeRate(state) * dtSec + (state.yieldCarry ?? 0);
+    const whole = Math.floor(raw);
+    state.yieldCarry = raw - whole;
+    if (whole > 0) state.coins += whole;
+    state.stats.playSeconds += dtSec;
+  }
+  state.lastYieldAt = now;
+
   const focusing = isFocusing(state, now);
 
   // 专注中：田里自己种自己收，工厂自己开工，玩家回来只管收钱

@@ -59,25 +59,27 @@ function mix(a: number, b: number, t: number): number {
 
 // ---------- 各色系调色板 ----------
 
-// 马卡龙：当前默认，高明度中高饱和，整体明亮通透
+// 云海：Islanders 的干净色块 + 光遇的轻盈大气。
+// 纪律：只有一个主色（草绿）、一个辅色（暖沙土）、一个强调（珊瑚红），
+// 其余色相全部向天空靠拢并降饱和——画面因此"通透"而不是"花"。
 const MACARON: Palette = {
-  sky: 0x8fd6ff,
-  skyDusk: 0xffb3c8,
-  skyNight: 0x5566b0,
-  grass: 0xbdf08f,
-  grassDark: 0x9be07a,
-  soil: 0xf6d588,
-  soilDark: 0xe0bd6e,
-  tilled: 0xd2a06a,
-  rock: 0xd9e2ec,
-  rockDark: 0xbcc8d6,
-  trunk: 0xc28e5a,
-  leafGreen: 0x8fe06a,
-  leafDeep: 0x6cc457,
-  leafLight: 0xc0f08a,
-  water: 0x76d9f0,
+  sky: 0xbfe4f5,
+  skyDusk: 0xffc2a4,
+  skyNight: 0x2b3a72,
+  grass: 0x9cd07e,
+  grassDark: 0x83ba68,
+  soil: 0xe9cfa2,
+  soilDark: 0xcfb181,
+  tilled: 0xbf9569,
+  rock: 0xcdd9e2,
+  rockDark: 0xaebcc9,
+  trunk: 0xa9794f,
+  leafGreen: 0x86c46b,
+  leafDeep: 0x63a55c,
+  leafLight: 0xa9d98c,
+  water: 0x7fd0e0,
   cloud: 0xffffff,
-  path: 0xf2e6c8,
+  path: 0xefe3c6,
   road: 0x9aa6b2,
 };
 
@@ -151,16 +153,12 @@ const MIST: Palette = {
 // ---------- 住宅配色（从马卡龙基础色派生各色系变体） ----------
 
 const HOUSE_BASE: HousePalette[] = [
-  { body: 0xfff0e0, roof: 0xff8c69, accent: 0x8fe0f0 },
-  { body: 0xffe9a8, roof: 0xff7043, accent: 0xffd28a },
-  { body: 0xc8f0d8, roof: 0x4fb0a0, accent: 0xffe0a8 },
-  { body: 0xffd6e0, roof: 0x9b8fc8, accent: 0xffb0c8 },
-  { body: 0xe2f3a8, roof: 0xd49a3c, accent: 0xb6e8c8 },
-  { body: 0xc4e4ff, roof: 0xe86a6a, accent: 0xcfe6ff },
-  { body: 0xffe8c4, roof: 0x7fc97f, accent: 0xffd8a8 },
-  { body: 0xe6d4f0, roof: 0xb07fd0, accent: 0xffc8ec },
-  { body: 0xffd9a8, roof: 0xff7a33, accent: 0xc8ecc0 },
-  { body: 0xc4f0ea, roof: 0x4fb6b0, accent: 0xffe6a8 },
+  { body: 0xfdf3e3, roof: 0xef8b6a, accent: 0x9fd8ea },
+  { body: 0xf7e6c8, roof: 0xd9714f, accent: 0xffe2b0 },
+  { body: 0xf2f7f2, roof: 0x7fb7ab, accent: 0xffd9a0 },
+  { body: 0xfbe9d6, roof: 0xc98f73, accent: 0xbfe6f2 },
+  { body: 0xf5efe4, roof: 0xe3a55c, accent: 0xd8ecc8 },
+  { body: 0xeef4f6, roof: 0x8aa7c9, accent: 0xffd9c0 },
 ];
 
 const HOUSES_CREAM = HOUSE_BASE.map((h) => ({
@@ -196,8 +194,8 @@ const SHIRTS_JELLY = [0xffe600, 0xff2e2e, 0x2e7bff, 0x35e035, 0xff3ea8, 0xff8a00
 export const SCHEMES: Record<string, Scheme> = {
   macaron: {
     id: 'macaron',
-    name: '马卡龙',
-    light: { hemi: 0.98, sun: 1.12, fill: 0.4 },
+    name: '云海',
+    light: { hemi: 0.56, sun: 1.34, fill: 0.22 },
     houses: HOUSE_BASE,
     shirts: SHIRTS_BASE,
     palette: MACARON,

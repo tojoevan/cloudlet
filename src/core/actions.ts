@@ -45,47 +45,65 @@ export function plant(state: GameState, plotId: number, crop: CropId, now: numbe
   return { ok: true, data: undefined };
 }
 
-export function harvest(state: GameState, plotId: number, now: number): ActionResult<{ item: CropId; count: number }> {
+export function harvest(
+  state: GameState,
+  plotId: number,
+  now: number,
+): ActionResult<{ item: CropId; count: number; overflow: number }> {
   const plot = state.plots[plotId];
   if (!plot || !plot.crop) return fail('这里没有作物');
   if (plot.readyAt > now) return fail('还没成熟');
 
+  // 放置游戏最怕「循环停摆」：仓库一满就不让收，屏幕上唯一在生长的东西就此卡死。
+  // 因此装不下的部分按 60% 折成金币（与专注自动收一致），田照常空出来。
   const room = roomFor(state, HARVEST_YIELD);
-  if (room <= 0) return fail('仓库满了，先交付订单');
-
   const crop = plot.crop;
-  addItem(state, crop, room);
+  const got = addItem(state, crop, room);
+  const overflow = HARVEST_YIELD - got;
+  if (overflow > 0) state.coins += Math.floor(CROPS[crop].price * overflow * SELL_RATE);
+
   recordCrop(state, crop);
   state.stats.harvests += 1;
   plot.crop = null;
   plot.plantedAt = 0;
   plot.readyAt = 0;
-  return { ok: true, data: { item: crop, count: room } };
+  return { ok: true, data: { item: crop, count: got, overflow } };
 }
 
 /** 一键收获：只收成熟的，返回总收获量供 UI 飘字 */
 export function harvestAll(
   state: GameState,
   now: number,
-): ActionResult<{ total: number; kinds: Partial<Record<ItemId, number>>; plots: number }> {
+): ActionResult<{
+  total: number;
+  kinds: Partial<Record<ItemId, number>>;
+  plots: number;
+  overflowCoins: number;
+}> {
   const kinds: Partial<Record<ItemId, number>> = {};
   let total = 0;
   let plots = 0;
+  let overflowCoins = 0;
 
-  // 先确认有成熟的地块，否则「仓库满」会被误报成「没成熟」
   const mature = state.plots.filter((p) => p.crop && p.readyAt <= now);
   if (mature.length === 0) return fail('还没有作物成熟');
-  if (roomFor(state, 1) <= 0) return fail('仓库满了，先交付订单');
 
   for (const plot of mature) {
-    const room = roomFor(state, HARVEST_YIELD);
-    if (room <= 0) break;
     const crop = plot.crop!;
+    const room = roomFor(state, HARVEST_YIELD);
     const got = addItem(state, crop, room);
-    if (got <= 0) break;
+    const overflow = HARVEST_YIELD - got;
+    // 仓库满也照收：多余部分折金币，别让一键收获半途停住
+    if (overflow > 0) {
+      const coins = Math.floor(CROPS[crop].price * overflow * SELL_RATE);
+      state.coins += coins;
+      overflowCoins += coins;
+    }
     recordCrop(state, crop);
-    kinds[crop] = (kinds[crop] ?? 0) + got;
-    total += got;
+    if (got > 0) {
+      kinds[crop] = (kinds[crop] ?? 0) + got;
+      total += got;
+    }
     plots += 1;
     state.stats.harvests += 1;
     plot.crop = null;
@@ -93,8 +111,8 @@ export function harvestAll(
     plot.readyAt = 0;
   }
 
-  if (plots === 0) return fail('仓库满了，先交付订单');
-  return { ok: true, data: { total, kinds, plots } };
+  if (plots === 0) return fail('还没有作物成熟');
+  return { ok: true, data: { total, kinds, plots, overflowCoins } };
 }
 
 /** 一键补种：按各地块上次种的作物重新播下，前期最常用的按钮 */

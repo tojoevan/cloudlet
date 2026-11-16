@@ -810,20 +810,21 @@ export function openOfflinePanel(report: {
   produced: [string, number][];
 }): void {
   const body = el('div');
+
+  // 回归演出：先把「你不在的时候小镇替你赚了多少」放大成主角，
+  // 其余的成熟地块、工厂产出退成次要信息。
+  const hero = el('div', 'offline-hero');
+  hero.appendChild(el('div', 'offline-amount', `+${fmt(report.coins)}`));
+  hero.appendChild(el('div', 'offline-unit', '金币 · 居民消费与观光收入'));
+  body.appendChild(hero);
+
   const list = el('div', 'grid');
-  list.appendChild(
-    card({
-      color: 0xe9b824,
-      name: `${fmt(report.coins)} 金币`,
-      meta: '居民消费与观光收入',
-      onClick: () => closeModal(),
-    }),
-  );
+
   if (report.ripe > 0) {
     list.appendChild(
       card({
         color: 0x6a994e,
-        name: `${report.ripe} 块地成熟`,
+        name: `${report.ripe} 块地熟了`,
         meta: '点「一键收获」收下',
         onClick: () => closeModal(),
       }),
@@ -834,11 +835,14 @@ export function openOfflinePanel(report: {
       card({
         color: 0x457b9d,
         name: `${name} ×${n}`,
-        meta: '工厂产出',
+        meta: '工厂在你离开时产出的',
         onClick: () => closeModal(),
       }),
     );
   }
-  body.appendChild(list);
-  openModal('你不在的时候', `离开 ${fmtDur(report.seconds * 1000)}`, body);
+
+  if (list.childElementCount > 0) body.appendChild(list);
+  body.appendChild(el('p', 'note', '小镇一直在自己转，随时回来看看就好。'));
+
+  openModal('欢迎回来', `你离开了 ${fmtDur(report.seconds * 1000)}`, body);
 }

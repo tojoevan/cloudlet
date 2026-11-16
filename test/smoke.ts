@@ -30,6 +30,7 @@ import {
   recordProduct,
 } from '../src/core/codex';
 import { capacityOf, expForLevel, invTotal } from '../src/core/economy';
+import { CROPS } from '../src/data/crops';
 import { cancelFocus, focusProgress, isFocusing, settleFocus, startFocus } from '../src/core/focus';
 import { deliver } from '../src/core/orders';
 import { exportCode, importCode, loadLocal, migrate, saveLocal } from '../src/core/save';
@@ -304,6 +305,36 @@ const imported = importCode(code);
 check('存档码可导入', imported !== null);
 check('导入后金币一致', imported?.coins === s.coins);
 check('坏存档码返回 null', importCode('not-a-real-code') === null);
+
+section('放置循环（P0 回归）');
+{
+  const g = createInitialState('loop-test');
+  g.level = 5;
+  const t = Date.now();
+  // 仓库塞满后仍然要能收：放置游戏里循环一旦停摆，画面上就没有东西在长了
+  g.inventory = { wheat: capacityOf(g) };
+  plant(g, 0, 'wheat', t - CROPS.wheat.growMs);
+  const coins0 = g.coins;
+  const r = harvest(g, 0, t);
+  check('仓满仍能收获（循环不停摆）', r.ok);
+  check('仓满部分折成金币', r.ok && r.data.overflow > 0 && g.coins > coins0);
+
+  // 在线被动收益：开着页面就有进账，但量级必须远小于订单
+  g.inventory = {};
+  g.coins = 1000;
+  g.lastYieldAt = t;
+  const before = g.coins;
+  for (let i = 1; i <= 60; i++) tick(g, t + i * 1000);
+  const gained = g.coins - before;
+  check('在线有被动金币', gained > 0, `+${gained}`);
+  check('被动收益量级合理（每分钟 < 200）', gained < 200, `+${gained}`);
+  check('playSeconds 会累积', g.stats.playSeconds >= 59, String(g.stats.playSeconds));
+
+  // 切后台回来不该一次性爆产
+  const c2 = g.coins;
+  tick(g, t + 60_000 + 2 * 3600_000);
+  check('长时间停顿只补 10 分钟', g.coins - c2 < 200, `+${g.coins - c2}`);
+}
 
 console.log(`\n${pass} 通过，${fail} 失败\n`);
 if (fail > 0) process.exit(1);

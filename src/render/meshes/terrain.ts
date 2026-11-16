@@ -2,7 +2,34 @@ import * as THREE from 'three';
 import { mat, matOwn } from '../mat';
 import { ISLAND_RADIUS, getPalette } from '../palette';
 import { CELL, SQUARE_N } from '../../core/island';
+import type { IslandShape } from '../../core/types';
 import { mulberry32, pick, range } from '../rng';
+
+
+/**
+ * 按顶点位置哈希给几何体刷一层极轻微的明暗差（±amount），做「草坪有肌理」的观感。
+ *
+ * 为什么不用贴图：圆岛草皮是 CylinderGeometry 顶盖，UV 是极坐标式的，
+ * 贴图上去会出现放射状错乱；而顶点色与 UV 无关，且重复顶点用同一哈希着色，
+ * 接缝处颜色天然连续。
+ */
+function tintByPosition(geo: THREE.BufferGeometry, amount = 0.055, seed = 0x9e3779b9): void {
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const x = Math.round(pos.getX(i) * 97);
+    const y = Math.round(pos.getY(i) * 97);
+    const z = Math.round(pos.getZ(i) * 97);
+    let h = seed ^ (x * 374761393) ^ (y * 668265263) ^ (z * 2147483647);
+    h = (h ^ (h >>> 13)) * 1274126177;
+    h = (h ^ (h >>> 16)) >>> 0;
+    const v = 1 + ((h % 1000) / 1000 - 0.5) * amount * 2;
+    colors[i * 3] = v;
+    colors[i * 3 + 1] = v;
+    colors[i * 3 + 2] = v;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
 
 /** 全部扰动共用一个种子：层与层的交界环才能算出相同偏移 */
 const JITTER_SEED = 0x51ed270b;
@@ -68,6 +95,8 @@ export function makeIsland(seed = 20260829, radius = ISLAND_RADIUS): THREE.Group
   // 几何体一律先平移到世界坐标再扰动：哈希按「同一个点」匹配偏移
   const top = new THREE.Mesh(
     jitter(new THREE.CylinderGeometry(R, R * 0.97, topH, 16).translate(0, -topH / 2, 0), 0),
+    // 顶面用独立材质挂程序化肌理：不能直接用共享的 mat(grass)，
+    // 否则所有同色物件（树冠等）都会被贴上草皮噪点。
     mat(getPalette().grass),
   );
   top.receiveShadow = true;
@@ -134,9 +163,11 @@ export function makeSquareIsland(seed = 20260829, half = 8.27, corner = 2.6): TH
 
   const topShape = new THREE.Shape();
   roundedRectPath(topShape, -half, -half, half * 2, half * 2, corner);
+  const squareTopGeo = makeExtrudedRounded(topShape, topH, 0);
+  tintByPosition(squareTopGeo);
   const top = new THREE.Mesh(
-    makeExtrudedRounded(topShape, topH, 0),
-    mat(getPalette().grass),
+    squareTopGeo,
+    matOwn(getPalette().grass, { vertexColors: true }),
   );
   top.receiveShadow = true;
   g.add(top);
@@ -217,11 +248,11 @@ function makeGridLines(_half: number, _corner: number): THREE.LineSegments {
   return new THREE.LineSegments(geo, matLines);
 }
 
-export type TreeKind = 'pine' | 'broadleaf';
+export type TreeKind = 'pine' | 'broadleaf' | 'umbrella';
 
 export function makeTree(seed: number, kind?: TreeKind): THREE.Group {
   const rng = mulberry32(seed);
-  const k = kind ?? pick(rng, ['pine', 'broadleaf'] as const);
+  const k = kind ?? pick(rng, ['pine', 'broadleaf', 'broadleaf', 'umbrella'] as const);
   const g = new THREE.Group();
   const scale = range(rng, 0.85, 1.25);
 
@@ -251,6 +282,22 @@ export function makeTree(seed: number, kind?: TreeKind): THREE.Group {
       y += h * 0.55;
       r *= 0.72;
     }
+  } else if (k === 'umbrella') {
+    // 伞形：细高的干 + 两层压得很扁的宽冠，远看轮廓和另两种完全不同
+    const trunkTall = trunkH * 1.35;
+    trunk.scale.y = 1.35;
+    const layer = (r: number, y: number, color: number) => {
+      const cap = new THREE.Mesh(
+        jitter(new THREE.IcosahedronGeometry(r, 0), r * 0.12),
+        mat(color),
+      );
+      cap.scale.set(1, 0.42, 1);
+      cap.position.y = y;
+      cap.castShadow = true;
+      foliage.add(cap);
+    };
+    layer(range(rng, 0.62, 0.78), trunkTall + 0.16, getPalette().leafDeep);
+    layer(range(rng, 0.46, 0.58), trunkTall + 0.42, getPalette().leafGreen);
   } else if (k === 'broadleaf') {
     const blobs = 2 + Math.floor(rng() * 2);
     for (let i = 0; i < blobs; i++) {
@@ -490,4 +537,251 @@ export function makePlotRing(size = 1.0, color = 0xffffff): THREE.Mesh {
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
   );
   return ring;
+}
+
+/**
+ * 地面色块：一块略深/略浅的不规则草皮，压在岛面上破掉"单一绿色大平面"。
+ * 用极低的 y 偏移 + polygonOffset 避免与岛面 z-fighting。
+ */
+export function makeGrassPatch(seed: number, radius: number, darker: boolean): THREE.Mesh {
+  const rng = mulberry32(seed);
+  const segs = 9;
+  const shape = new THREE.Shape();
+  for (let i = 0; i < segs; i++) {
+    const a = (i / segs) * Math.PI * 2;
+    const r = radius * (0.7 + rng() * 0.5);
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    if (i === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  const geo = new THREE.ShapeGeometry(shape);
+  geo.rotateX(-Math.PI / 2);
+  const p = getPalette();
+  // 直接从主草色派生出更深/更浅的一档，不新增 palette 字段（换配色方案时自动跟随）
+  const base = new THREE.Color(p.grass).offsetHSL(0, 0, darker ? -0.045 : 0.05).getHex();
+  const mat = matOwn(base, {
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+/** 花丛：几朵小花 + 细茎，给大片草地点几处暖色，成本极低 */
+export function makeFlowerCluster(seed: number): THREE.Group {
+  const rng = mulberry32(seed);
+  const g = new THREE.Group();
+  const colors = [0xf0687a, 0xffd45e, 0xc48ae0, 0xfdf6e3, 0xf79a48];
+  const n = 4 + Math.floor(rng() * 4);
+  for (let i = 0; i < n; i++) {
+    const h = 0.10 + rng() * 0.12;
+    const x = (rng() - 0.5) * 0.5;
+    const z = (rng() - 0.5) * 0.5;
+    const stem = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.008, 0.01, h, 3),
+      mat(getPalette().leafDeep),
+    );
+    stem.position.set(x, h / 2, z);
+    g.add(stem);
+    const bloom = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.035 + rng() * 0.02, 0),
+      mat(colors[Math.floor(rng() * colors.length)]),
+    );
+    bloom.position.set(x, h, z);
+    g.add(bloom);
+  }
+  return g;
+}
+
+/**
+ * 可烘焙 AO 的地面覆盖层。
+ *
+ * 为什么是"覆盖层 + 顶点色"而不是贴花：贴花与岛面几乎共面，深度精度会让它大面积丢片
+ * （实测只有抬到 0.25 才可见）。改成不透明的细分网格、把遮蔽直接乘进顶点色，
+ * 既不透明也不共面竞争，且只有 1 个 draw call。
+ *
+ * @param shape round=极坐标圆盘；square=投影到圆角矩形的网格
+ * @param size  半径（round）或半边长（square）
+ * @param corner 圆角半径（仅 square）
+ */
+export function makeGroundOverlay(
+  shape: IslandShape,
+  size: number,
+  corner: number,
+  segs = 44,
+  baseColor?: number,
+): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+  const base = new THREE.Color(baseColor ?? getPalette().grass);
+
+  const push = (x: number, z: number, mottle: number) => {
+    positions.push(x, 0, z);
+    // 极轻微的明暗差，避免整块死平
+    const k = 1 + (mottle - 0.5) * 0.09;
+    colors.push(base.r * k, base.g * k, base.b * k);
+  };
+
+  if (shape === 'round') {
+    // 极坐标网格：环数 × 段数，中心一个点
+    const rings = Math.max(8, Math.round(segs * 0.5));
+    const segsN = segs;
+    push(0, 0, 0.5);
+    let h = 0x51ed270b;
+    const rnd = () => {
+      h = (h * 1664525 + 1013904223) >>> 0;
+      return h / 4294967296;
+    };
+    for (let r = 1; r <= rings; r++) {
+      const rr = (size * r) / rings;
+      for (let s = 0; s < segsN; s++) {
+        const a = (s / segsN) * Math.PI * 2;
+        push(Math.cos(a) * rr, Math.sin(a) * rr, rnd());
+      }
+    }
+    // 中心扇形
+    for (let s = 0; s < segsN; s++) {
+      const i0 = 0;
+      const i1 = 1 + s;
+      const i2 = 1 + ((s + 1) % segsN);
+      indices.push(i0, i2, i1);
+    }
+    // 环带
+    for (let r = 1; r < rings; r++) {
+      const startA = 1 + (r - 1) * segsN;
+      const startB = 1 + r * segsN;
+      for (let s = 0; s < segsN; s++) {
+        const s2 = (s + 1) % segsN;
+        const a0 = startA + s;
+        const a1 = startA + s2;
+        const b0 = startB + s;
+        const b1 = startB + s2;
+        indices.push(a0, b1, a1, a0, b0, b1);
+      }
+    }
+  } else {
+    // 网格 → 投影到圆角矩形边界内
+    const n = segs;
+    const half = size;
+    const inner = half - corner;
+    const clampToRound = (x: number, z: number): [number, number] => {
+      const ax = Math.abs(x);
+      const az = Math.abs(z);
+      if (ax <= inner || az <= inner) {
+        return [Math.max(-half, Math.min(half, x)), Math.max(-half, Math.min(half, z))];
+      }
+      const cx = Math.sign(x) * inner;
+      const cz = Math.sign(z) * inner;
+      const dx = x - cx;
+      const dz = z - cz;
+      const d = Math.hypot(dx, dz);
+      if (d <= corner) return [x, z];
+      const k = corner / d;
+      return [cx + dx * k, cz + dz * k];
+    };
+    for (let j = 0; j <= n; j++) {
+      for (let i = 0; i <= n; i++) {
+        const x = -half + (2 * half * i) / n;
+        const z = -half + (2 * half * j) / n;
+        const [px, pz] = clampToRound(x, z);
+        push(px, pz, ((i * 7919 + j * 104729) % 1000) / 1000);
+      }
+    }
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const a = j * (n + 1) + i;
+        const b = a + 1;
+        const c = a + (n + 1);
+        const d = c + 1;
+        indices.push(a, c, b, b, c, d);
+      }
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * 小型广场：石铺圆盘 + 一圈圈铺装带。
+ * 梦想城镇式的"镇中心"就是靠这种硬质铺装 + 长椅/路灯/花坛围合出来的场域感，
+ * 比在草地上撒道具更能立刻读出"这里是个广场"。
+ */
+export function makePlaza(radius: number, segs = 40): THREE.Mesh {
+  const geo = makeGroundOverlay('round', radius, 0, segs, getPalette().path);
+  // 环状铺装带：按半径分圈，隔圈略压暗，远看就是石砖的同心纹路
+  const pos = geo.attributes.position;
+  const col = geo.attributes.color;
+  for (let i = 0; i < pos.count; i++) {
+    const r = Math.hypot(pos.getX(i), pos.getZ(i)) / radius;
+    const band = Math.floor(r * 4.5);
+    const k = band % 2 === 0 ? 1 : 0.94;
+    col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
+  }
+  col.needsUpdate = true;
+  const mesh = new THREE.Mesh(
+    geo,
+    matOwn(0xffffff, {
+      vertexColors: true,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3,
+    }),
+  );
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+export interface AoCaster {
+  x: number;
+  z: number;
+  /** 投影半径 */
+  r: number;
+  /** 遮蔽强度 0~1 */
+  k: number;
+}
+
+/**
+ * 把遮蔽烘进顶点色：每个顶点找最近的若干投影，按距离衰减压暗。
+ * 依赖几何体已被 makeGroundOverlay 铺过颜色，函数内先备份基色再反复重算，
+ * 所以可以随建筑增删多次调用。
+ */
+export function bakeGroundAO(geo: THREE.BufferGeometry, casters: AoCaster[]): void {
+  const pos = geo.attributes.position;
+  const col = geo.attributes.color;
+  if (!col) return;
+  if (!geo.userData.aoBase) {
+    geo.userData.aoBase = Float32Array.from(col.array as Float32Array);
+  }
+  const baseArr = geo.userData.aoBase as Float32Array;
+  const n = pos.count;
+  for (let i = 0; i < n; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    let occ = 0;
+    for (let c = 0; c < casters.length; c++) {
+      const o = casters[c];
+      const dx = x - o.x;
+      const dz = z - o.z;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      const reach = o.r * 2.1;
+      if (d >= reach) continue;
+      const t = 1 - d / reach;
+      const v = t * t * o.k;
+      if (v > occ) occ = v;
+    }
+    const f = 1 - Math.min(0.55, occ * 0.75);
+    col.setXYZ(i, baseArr[i * 3] * f, baseArr[i * 3 + 1] * f, baseArr[i * 3 + 2] * f);
+  }
+  col.needsUpdate = true;
 }

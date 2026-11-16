@@ -85,7 +85,7 @@ function normalize(s: GameState): GameState {
     quality: 'standard',
     colorScheme: 'macaron',
     cloudSync: false,
-    perfMonitor: true,
+    perfMonitor: false,
   };
   s.settings.cloudSync ??= false;
   s.settings.powerSave ??= false;
@@ -93,7 +93,7 @@ function normalize(s: GameState): GameState {
   s.settings.colorScheme ??= 'macaron';
   s.settings.channel ??= 'citypop';
   s.settings.volume ??= 0.6;
-  s.settings.perfMonitor ??= true;
+  s.settings.perfMonitor ??= false; // 默认关闭：这是开发者用的浮层，不该打扰玩家
   s.focus.placed ??= 0;
   // 老存档的建筑没有 level 字段，补成 1，避免升级逻辑读 undefined
   if (Array.isArray(s.buildings)) {
@@ -104,6 +104,8 @@ function normalize(s: GameState): GameState {
   ensureIslands(s);
   normalizeProgress(s); // 加载即规整进度，旧越界档不再污染后续推送
   s.syncedAt ??= 0; // 旧存档补齐「上次同步点」，避免 undefined 参与比较
+  s.lastYieldAt ??= 0; // 在线被动收益的结算锚点
+  s.yieldCarry ??= 0; // 被动收益小数进位
   return s;
 }
 

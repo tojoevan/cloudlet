@@ -166,6 +166,10 @@ const bar = new ActionBar({
     if (!r.ok) return toast(r.reason);
     audio.play('harvest');
     floatAtCanvas(`+${r.data.total} 收获`, 'good');
+    // 仓库满时多余部分折了金币，得让玩家知道「没白收」
+    if (r.data.overflowCoins > 0) {
+      floatAtCanvas(`仓库已满 · 折现 +${r.data.overflowCoins} 金币`, 'gold');
+    }
     markDirty();
     saveNow();
   },
@@ -241,6 +245,8 @@ function openSettings(): void {
     onQuality: (q) => {
       state.settings.quality = q;
       view.setQuality(q);
+      // 画质切换时同步移轴开关（低画质/省电不跑后处理）
+      view.setTilt(q !== 'low' && !state.settings.powerSave);
     },
     onColorScheme: (id) => {
       state.settings.colorScheme = id;
@@ -321,6 +327,54 @@ const speech = new SpeechBubble(uiRoot);
 
 function floatAtCanvas(text: string, kind: '' | 'gold' | 'good' = ''): void {
   floatAt(window.innerWidth / 2, window.innerHeight * 0.42, text, kind);
+}
+
+/**
+ * 收获物飞向仓库的动效。
+ * 纯 DOM 实现（不占 WebGL 绘制），从地块屏幕坐标抛向顶部的仓库 chip，
+ * 让"收下"这件事有物理方向感——放置游戏里这类小反馈比数值更重要。
+ */
+function flyToStore(fromX: number, fromY: number, label: string): void {
+  const chip = document.querySelector('.chip.store') as HTMLElement | null;
+  const target = chip?.getBoundingClientRect();
+  if (!target) {
+    floatAt(fromX, fromY, label, 'good');
+    return;
+  }
+  const el2 = document.createElement('div');
+  el2.className = 'fly-item';
+  el2.textContent = label;
+  el2.style.left = `${fromX}px`;
+  el2.style.top = `${fromY}px`;
+  uiRoot.appendChild(el2);
+
+  const dx = target.left + target.width / 2 - fromX;
+  const dy = target.top + target.height / 2 - fromY;
+  el2
+    .animate(
+      [
+        { transform: 'translate(-50%,-50%) scale(1)', opacity: 1, offset: 0 },
+        {
+          transform: `translate(calc(-50% + ${dx * 0.5}px), calc(-50% + ${dy * 0.3 - 46}px)) scale(1.18)`,
+          opacity: 1,
+          offset: 0.5,
+        },
+        {
+          transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.35)`,
+          opacity: 0,
+          offset: 1,
+        },
+      ],
+      { duration: 640, easing: 'cubic-bezier(.34,.06,.26,1)' },
+    )
+    .addEventListener('finish', () => el2.remove());
+}
+
+function flyAtPlot(index: number, label: string): void {
+  const p = plotPosition(index).clone();
+  p.y += 0.55;
+  const s = world.worldToScreen(p, view.camera, canvas);
+  flyToStore(s.x, s.y, label);
 }
 
 function floatAtPlot(index: number, text: string, kind: '' | 'gold' | 'good' = ''): void {
@@ -408,7 +462,8 @@ function doHarvest(plotId: number): void {
     return toast(r.reason);
   }
   audio.play('harvest');
-  floatAtPlot(plotId, `+${r.data.count} ${itemName(r.data.item)}`, 'good');
+  if (r.data.count > 0) flyAtPlot(plotId, `+${r.data.count}`);
+  if (r.data.overflow > 0) floatAtPlot(plotId, `仓满折现`, 'gold');
   markDirty();
   saveNow();
 }
@@ -1009,13 +1064,26 @@ window.addEventListener('keydown', (e) => {
 // ---------- 昼夜 ----------
 let nightNow = isNight();
 world.applyTimeOfDay(nightNow);
-setInterval(() => {
-  const n = isNight();
-  if (n === nightNow) return;
-  nightNow = n;
-  world.applyTimeOfDay(n);
-  view.setSky(n);
-}, 30_000);
+
+/** 把当前时刻的天空/光线/灯光一起刷新（每分钟一次，跨时段才有可见变化） */
+function syncTimeOfDay(): void {
+  const d = new Date();
+  // ?hour=18.6 可预览任意时段的光色（调试/截图用，不影响存档）
+  // 注意：没有该参数时必须当"没传"，不能 Number(null)——那是 0，会被当成午夜。
+  const rawHour = new URLSearchParams(location.search).get('hour');
+  const forced = rawHour === null ? NaN : Number(rawHour);
+  const hour = Number.isFinite(forced) && forced >= 0 && forced <= 24
+    ? forced
+    : d.getHours() + d.getMinutes() / 60;
+  view.applyHour(hour);
+  const n = hour >= 19 || hour < 6;
+  if (n !== nightNow) {
+    nightNow = n;
+    world.applyTimeOfDay(n);
+  }
+}
+syncTimeOfDay();
+setInterval(syncTimeOfDay, 60_000);
 
 function isNight(): boolean {
   const h = new Date().getHours();
@@ -1109,7 +1177,9 @@ function applyPerfVisibility(): void {
 
 function frame(t: number): void {
   const rawInterval = Math.min(1000, t - last); // 真实帧间隔(ms)，不 clamp，供性能监控
-  const dt = Math.min(0.05, rawInterval / 1000);
+  // dt 必须有下限：rAF 的时间戳偶尔会小于上一帧记录值（首帧、标签页恢复），
+  // 负 dt 会让所有基于 dt 的动画倒放——落成弹跳的 ease 曲线在负值域会算出巨大的缩放。
+  const dt = Math.max(0, Math.min(0.05, rawInterval / 1000));
   last = t;
   const now = Date.now();
 
@@ -1229,8 +1299,11 @@ world.applyTimeOfDay(isNight());
 checkAchievements(state);
 dirty = false;
 view.setQuality(state.settings.quality);
+// 低画质或省电模式关掉移轴后处理，省一次全屏 pass
+view.setTilt(state.settings.quality !== 'low' && !state.settings.powerSave);
 view.setPowerSave(state.settings.powerSave);
-view.setSky(isNight());
+// 注意：这里不要再手动 view.setSky(isNight())——时段光色已由 syncTimeOfDay 统一负责，
+// 用真实时钟覆盖会把 ?hour= 预览和凌晨启动的配色一起打回夜间。
 view.resize();
 requestAnimationFrame(frame);
 

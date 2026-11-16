@@ -153,6 +153,10 @@ export interface GameState {
   /** 上次与云端同步一致的存档版本时间戳（ms）。同步的「是否下载云端」判断以它为准，
    *  不受本地自动存档刷新 savedAt 的影响，避免「本地永远比云端新→从不下载、反覆盖云端」。 */
   syncedAt?: number;
+  /** 在线被动收益的上次结算时刻（ms）。放置游戏「看着它转也有进账」靠它按帧累加。 */
+  lastYieldAt?: number;
+  /** 被动收益的小数进位，避免每帧取整把零头丢光。 */
+  yieldCarry?: number;
   level: number;
   exp: number;
   coins: number;

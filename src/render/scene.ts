@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { getPalette, getScheme } from './palette';
+import { createBackdrop, type Backdrop } from './backdrop';
 
 /**
  * 从天空基色派生渐变用的上/下两色：
@@ -22,6 +23,34 @@ function skyTop(hex: number, night: boolean): THREE.Color {
   if (night) c.lerp(new THREE.Color(0x20284a), 0.35);
   return c;
 }
+
+/**
+ * 一天里的光色脚本。只有"白天/夜晚"两档时，画面永远是同一个蓝调；
+ * 加上清晨的暖橘、黄昏的粉紫，同一座岛在一天里就有三种气质——
+ * 这是陪伴类游戏最廉价、也最有效的氛围来源。
+ *   k    : 向 tint 靠拢的强度
+ *   sun  : 主光强度倍率
+ *   hemi : 环境光强度倍率
+ */
+interface TimeStop {
+  h: number;
+  tint: number;
+  k: number;
+  sun: number;
+  hemi: number;
+}
+const TIME_STOPS: TimeStop[] = [
+  { h: 0,    tint: 0x46578f, k: 0.58, sun: 0.58, hemi: 0.80 },
+  { h: 5.2,  tint: 0x4a5686, k: 0.56, sun: 0.60, hemi: 0.82 },
+  { h: 6.4,  tint: 0xffa064, k: 0.52, sun: 0.48, hemi: 0.58 },
+  { h: 8,    tint: 0xfff0dc, k: 0.14, sun: 0.98, hemi: 0.94 },
+  { h: 12,   tint: 0xffffff, k: 0.00, sun: 1.15, hemi: 1.00 },
+  { h: 16.5, tint: 0xfff2d8, k: 0.10, sun: 1.05, hemi: 0.96 },
+  { h: 18.4, tint: 0xff9a5c, k: 0.50, sun: 0.62, hemi: 0.70 },
+  { h: 19.8, tint: 0x6b5a92, k: 0.54, sun: 0.52, hemi: 0.68 },
+  { h: 21.5, tint: 0x46578f, k: 0.58, sun: 0.60, hemi: 0.82 },
+  { h: 24,   tint: 0x46578f, k: 0.58, sun: 0.58, hemi: 0.80 },
+];
 
 const ISO_PITCH = Math.atan(1 / Math.SQRT2); // 真等距 35.26°
 const MIN_ZOOM = 0.55;
@@ -92,6 +121,8 @@ export class SceneView {
   private hemi!: THREE.HemisphereLight;
   private fill!: THREE.DirectionalLight;
   private isNight = false;
+  /** 当前时段（0~24，含分钟）。setSky 被配色方案/重建触发时会据此重新叠色温 */
+  private hour = 12;
   private quality: 'low' | 'standard' | 'high' = 'standard';
   /** 最近一帧的性能快照（render 后刷新），主循环读取它做采样与告警 */
   perf: PerfSnapshot = { calls: 0, triangles: 0, geometries: 0, textures: 0, jsHeap: 0 };
@@ -109,6 +140,14 @@ export class SceneView {
   private fitBox: THREE.Box3 | null = null;
   /** 渐变天穹：大球壳 + 自定义着色器，下亮上蓝、带轻微倾斜与顶部柔光 */
   private sky!: THREE.Mesh;
+  /** 移轴后处理：先把场景渲进 RT，再用全屏 pass 做上下模糊带 + 轻饱和 + 暗角 */
+  private rt: THREE.WebGLRenderTarget | null = null;
+  private postScene = new THREE.Scene();
+  private postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  private postMat: THREE.ShaderMaterial | null = null;
+  private tiltOn = true;
+  /** 远景背板（远山 + 云海），不随换岛重建 */
+  private backdrop!: Backdrop;
   private skyMat!: THREE.ShaderMaterial;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -149,6 +188,7 @@ export class SceneView {
         uniform vec3 uGlowDir;
         uniform float uGlowAmt;
         varying vec3 vDir;
+
         void main() {
           vec3 d = normalize(vDir);
           // 上蓝下亮的竖直渐变，叠加一点水平倾斜让等色线略斜
@@ -158,8 +198,10 @@ export class SceneView {
           // 顶部柔光扩散（圆形晕开感）
           float g = pow(max(dot(d, normalize(uGlowDir)), 0.0), 3.0);
           col = mix(col, uGlow, g * uGlowAmt);
-          // 线性 → sRGB，与场景其它材质观感一致
-          col = pow(col, vec3(1.0 / 2.2));
+          // 注意：这里不要再做 sRGB 编码。
+          // 场景是渲进 RenderTarget 再由移轴后处理统一转sRGB的，
+          // 天穹若自己再编码一次，就会变成"双重 gamma"——夜景被抬成灰蓝、
+          // 白天则整体发白，正是之前颜色不讨喜的根因。
           gl_FragColor = vec4(col, 1.0);
         }
       `,
@@ -170,7 +212,14 @@ export class SceneView {
     this.scene.add(this.sky);
 
     // 天空与雾色随色系走，由 setSky 统一设置
-    this.scene.fog = new THREE.Fog(0xffffff, 42, 96);
+    // 雾必须落在岛体之外：正交相机离岛约 40~50 单位，雾近界若设在 30，
+    // 整座岛会被雾压成灰蓝色（表现为"颜色暗淡、体积全失"）。
+    // 远景层的淡化已由顶点色自己做（backdrop 关掉 fog），这里只留极远处柔化。
+    this.scene.fog = new THREE.Fog(0xffffff, 90, 170);
+    this.backdrop = createBackdrop();
+    this.scene.add(this.backdrop.group);
+    this.setupPost();
+
     this.setSky(false);
 
     this.setupLights();
@@ -187,10 +236,11 @@ export class SceneView {
   setSky(night: boolean): void {
     this.isNight = night;
     const p = getPalette();
-    const hex = night ? p.skyNight : p.sky;
-    const bottom = skyBottom(hex, night);
-    const top = skyTop(hex, night);
-    const glow = skyBottom(hex, night).lerp(new THREE.Color(0xffffff), night ? 0.1 : 0.3);
+    // 夜空不做推导：skyBottom 会往白色提亮 14%，再经 sRGB 编码后就变成发白的灰紫，
+    // 这正是"夜里颜色不讨喜"的来源。这里直接给一组饱和的靛蓝。
+    const bottom = night ? new THREE.Color(0x18213f) : skyBottom(p.sky, false);
+    const top = night ? new THREE.Color(0x0a1026) : skyTop(p.sky, false);
+    const glow = bottom.clone().lerp(new THREE.Color(0xffffff), night ? 0.03 : 0.3);
     if (this.skyMat) {
       this.skyMat.uniforms.uBottom.value.copy(bottom);
       this.skyMat.uniforms.uTop.value.copy(top);
@@ -200,6 +250,166 @@ export class SceneView {
     if (this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(bottom);
     // 纯色兜底（天穹意外未覆盖时）
     this.scene.background = bottom.clone();
+    this.backdrop?.setNight(night);
+    this.tintAndLights();
+  }
+
+  /**
+   * 移轴（tilt-shift）后处理。
+   * 微缩模型的观感有一半来自「只有中间一条是清楚的」——这是摄影里的浅景深，
+   * 在正交等距画面上用上下两条模糊带模拟，效果非常廉价但极有效。
+   * 顺带在同一趟 pass 里做轻微提饱和与暗角，避免再开一次全屏开销。
+   */
+  private setupPost(): void {
+    const size = new THREE.Vector2();
+    this.renderer.getDrawingBufferSize(size);
+    this.rt = new THREE.WebGLRenderTarget(size.x || 1, size.y || 1, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      depthBuffer: true,
+      stencilBuffer: false,
+    });
+    this.postMat = new THREE.ShaderMaterial({
+      uniforms: {
+        tDiffuse: { value: this.rt.texture },
+        uTexel: { value: new THREE.Vector2(1 / (size.x || 1), 1 / (size.y || 1)) },
+        uBlur: { value: 3.0 },
+        uBand: { value: 0.28 },
+        uSat: { value: 1.06 },
+      },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position.xy, 0.0, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D tDiffuse;
+        uniform vec2 uTexel;
+        uniform float uBlur;
+        uniform float uBand;
+        uniform float uSat;
+        varying vec2 vUv;
+
+        void main() {
+          // 距画面竖直中心的距离：中间清楚，上下渐糊
+          float d = abs(vUv.y - 0.5) * 2.0;
+          float blurAmt = smoothstep(1.0 - uBand, 1.0, d) * uBlur;
+
+          vec3 c = texture2D(tDiffuse, vUv).rgb;
+          if (blurAmt > 0.001) {
+            vec3 acc = c;
+            float wsum = 1.0;
+            // 9 点高斯（十字 + 对角），够用且便宜
+            for (int i = 1; i <= 4; i++) {
+              float w = 1.0 / float(i + 1);
+              float o = blurAmt * float(i);
+              acc += texture2D(tDiffuse, vUv + vec2(uTexel.x * o, 0.0)).rgb * w;
+              acc += texture2D(tDiffuse, vUv - vec2(uTexel.x * o, 0.0)).rgb * w;
+              acc += texture2D(tDiffuse, vUv + vec2(0.0, uTexel.y * o)).rgb * w;
+              acc += texture2D(tDiffuse, vUv - vec2(0.0, uTexel.y * o)).rgb * w;
+              wsum += w * 4.0;
+            }
+            c = acc / wsum;
+          }
+
+          // 轻微提饱和：低多边形画面容易发灰
+          float l = dot(c, vec3(0.299, 0.587, 0.114));
+          c = mix(vec3(l), c, uSat);
+          // 极轻暗角
+          vec2 p = vUv - 0.5;
+          c *= 1.0 - dot(p, p) * 0.22;
+          // 关键：RT 里存的是线性值，自定义 ShaderMaterial 不会自动做 sRGB 编码，
+          // 少了这一步整幅画面会明显发暗（草色直接掉成深绿）。
+          c = pow(max(c, 0.0), vec3(1.0 / 2.2));
+          gl_FragColor = vec4(c, 1.0);
+        }
+      `,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.postMat);
+    quad.frustumCulled = false;
+    this.postScene.add(quad);
+  }
+
+  /** 视口变化时同步 RT 尺寸 */
+  private syncPostSize(): void {
+    if (!this.rt || !this.postMat) return;
+    const size = new THREE.Vector2();
+    this.renderer.getDrawingBufferSize(size);
+    if (size.x === 0 || size.y === 0) return;
+    if (this.rt.width === size.x && this.rt.height === size.y) return;
+    this.rt.setSize(size.x, size.y);
+    (this.postMat.uniforms.uTexel.value as THREE.Vector2).set(1 / size.x, 1 / size.y);
+  }
+
+  /** 在关键帧之间插值出当前时刻的色温与光照强度 */
+  private timeLook(hour: number): { k: number; sun: number; hemi: number; tint: THREE.Color } {
+    const stops = TIME_STOPS;
+    let a = stops[0];
+    let b = stops[stops.length - 1];
+    for (let i = 0; i < stops.length - 1; i++) {
+      if (hour >= stops[i].h && hour <= stops[i + 1].h) {
+        a = stops[i];
+        b = stops[i + 1];
+        break;
+      }
+    }
+    const span = Math.max(0.001, b.h - a.h);
+    const t = Math.min(1, Math.max(0, (hour - a.h) / span));
+    return {
+      k: a.k + (b.k - a.k) * t,
+      sun: a.sun + (b.sun - a.sun) * t,
+      hemi: a.hemi + (b.hemi - a.hemi) * t,
+      tint: new THREE.Color(a.tint).lerp(new THREE.Color(b.tint), t),
+    };
+  }
+
+  /**
+   * 把时段色温叠到天穹/雾/背景色与三盏灯上。
+   * 由 setSky 末尾调用，因此「切配色方案」「换岛重建」之后也不会把时段光色冲掉——
+   * 之前 applyHour 只管一次，配色初始化随后 setSky 一覆盖，黄昏就变回正午了。
+   */
+  private tintAndLights(): void {
+    if (!this.sun) return; // 构造期灯光还没建好
+    const { k, sun, hemi, tint } = this.timeLook(this.hour);
+    const u = this.skyMat?.uniforms;
+    if (u) {
+      u.uBottom.value.lerp(tint, Math.min(0.88, k * 0.9));
+      u.uTop.value.lerp(tint, Math.min(0.92, k * 1.0));
+      u.uGlow.value.lerp(tint, Math.min(0.8, k * 0.6));
+      const bottom = u.uBottom.value;
+      if (this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(bottom);
+      this.scene.background = (bottom as THREE.Color).clone();
+    }
+    const light = getScheme().light;
+    if (this.isNight) {
+      // 夜里用"冷月光 + 暖补光"的冷暖对比，比整片紫灰高级得多：
+      // 主光是淡蓝月光，补光模拟窗灯/路灯的暖色溢光。
+      this.sun.color.set(0xb9c8ff);
+      this.hemi.color.set(0x9fb4e8);
+      this.hemi.groundColor.set(0x5a6b8c);
+      this.fill.color.set(0xffb877);
+      this.fill.intensity = 0.34;
+    } else {
+      this.sun.color.copy(new THREE.Color(0xfff8ec).lerp(tint, k * 0.8));
+      this.hemi.color.set(0xeef6ff);
+      this.hemi.groundColor.set(0xd6f0c8);
+      this.fill.color.set(0xdcefff);
+      this.fill.intensity = light.fill * hemi * 0.8;
+    }
+    this.sun.intensity = light.sun * sun;
+    this.hemi.intensity = light.hemi * hemi;
+  }
+
+  /** 按时段套用光色：算出昼夜后用 setSky 重构基础天穹，色温由 tintAndLights 叠加 */
+  applyHour(hour: number): void {
+    this.hour = hour;
+    // 用小时而不是光照阈值判定昼夜：阈值会在晨昏附近抖动，
+    // 导致「该换夜空却还在用白天基调 + 色温 lerp」，天空因此发灰。
+    this.setSky(hour >= 19 || hour < 6);
   }
 
   private setupLights(): void {
@@ -257,6 +467,7 @@ export class SceneView {
    * 这正是「放在一旁陪伴」想要的形态。
    */
   update(dt: number): void {
+    this.backdrop?.update(dt);
     this.easeYaw(dt);
     const now = performance.now();
     // 展示模式：进入即持续环绕，不被 30s 待机计时卡住
@@ -560,6 +771,11 @@ export class SceneView {
    * - high     ：2048 阴影（桌面高质量，配合后续后期效果）
    * 改变阴影贴图尺寸后要 dispose 旧 shadow map，否则不会重建。
    */
+  /** 移轴开关：省电模式或低画质时关掉，省一次全屏 pass */
+  setTilt(on: boolean): void {
+    this.tiltOn = on;
+  }
+
   setQuality(q: 'low' | 'standard' | 'high'): void {
     this.quality = q;
     const dpr = Math.min(window.devicePixelRatio, 2);
@@ -628,7 +844,16 @@ export class SceneView {
   }
 
   render(): void {
-    this.renderer.render(this.scene, this.camera);
+    if (this.tiltOn && this.rt && this.postMat) {
+      this.syncPostSize();
+      const prev = this.renderer.getRenderTarget();
+      this.renderer.setRenderTarget(this.rt);
+      this.renderer.render(this.scene, this.camera);
+      this.renderer.setRenderTarget(prev);
+      this.renderer.render(this.postScene, this.postCam);
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
     // 绘制后立刻抓 renderer.info：autoReset 默认开启，统计的就是本帧数据
     const info = this.renderer.info;
     const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
