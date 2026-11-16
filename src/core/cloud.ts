@@ -63,6 +63,8 @@ interface RequestResult {
   data?: CloudDoc;
   /** 处于退避暂停期，请求根本没发出去 */
   skipped?: boolean;
+  /** 409：云端已被其他设备更新，这里带回云端那份供调用方决策 */
+  conflictDoc?: GameState;
 }
 
 async function request(
@@ -70,7 +72,7 @@ async function request(
   ownerId: string,
   token: string | null | undefined,
   body?: unknown,
-  importMode = false,
+  opts: { importMode?: boolean; base?: number } = {},
 ): Promise<RequestResult> {
   if (isPaused()) return { ok: false, status: 0, skipped: true };
   const ctrl = new AbortController();
@@ -78,7 +80,9 @@ async function request(
   try {
     const params = new URLSearchParams();
     params.set('owner', ownerId);
-    if (importMode) params.set('import', '1');
+    if (opts.importMode) params.set('import', '1');
+    // 乐观并发：告诉服务端「我上次同步的是哪个版本」，被别的设备改过就返回 409
+    if (opts.base != null && opts.base > 0) params.set('base', String(opts.base));
     // 防缓存：CDN/Cloudflare 可能缓存 GET /api/save 的陈旧响应，
     // 每次追加唯一参数强制回源，避免前端拿到坏缓存。
     if (method === 'GET') params.set('_', String(Date.now()));
@@ -95,6 +99,16 @@ async function request(
     if (res.status === 404) {
       settle(true);
       return { ok: true, status: 404 };
+    }
+    if (res.status === 409 && method === 'PUT') {
+      // 冲突不是错误：让调用方比较两边谁更新
+      settle(true);
+      try {
+        const j = (await res.json()) as { doc?: GameState };
+        return { ok: false, status: 409, conflictDoc: j?.doc };
+      } catch {
+        return { ok: false, status: 409 };
+      }
     }
     if (res.status === 400 && method === 'PUT') {
       // 等级校验未通过（疑似作弊或存档损坏）：当作错误，但不计入退避
@@ -152,16 +166,23 @@ export async function cloudPull(
   return { status: 'ok', doc: r.data.doc, updatedAt: r.data.updatedAt };
 }
 
+export interface PushResult {
+  status: SyncStatus;
+  /** 409 时带回云端那份，供调用方决定采用或强推 */
+  conflictDoc?: GameState;
+}
+
 export async function cloudPush(
   ownerId: string,
   state: GameState,
   token: string | null | undefined,
-  opts: { importMode?: boolean } = {},
-): Promise<SyncStatus> {
-  const r = await request('PUT', ownerId, token, { doc: state }, opts.importMode);
-  if (r.skipped) return 'paused';
-  if (!r.ok) return r.status === 0 ? 'unavailable' : 'error';
-  return 'ok';
+  opts: { importMode?: boolean; base?: number } = {},
+): Promise<PushResult> {
+  const r = await request('PUT', ownerId, token, { doc: state }, opts);
+  if (r.skipped) return { status: 'paused' };
+  if (r.status === 409) return { status: 'error', conflictDoc: r.conflictDoc };
+  if (!r.ok) return { status: r.status === 0 ? 'unavailable' : 'error' };
+  return { status: 'ok' };
 }
 
 export function describeStatus(s: SyncStatus): string {

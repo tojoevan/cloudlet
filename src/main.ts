@@ -1019,9 +1019,33 @@ function saveNow(): void {
   normalizeProgress(state); // 推送前规整，避免越界经验被云端以「等级异常」拒绝
   saveLocal(state);
   const { ownerId, token } = syncOwner();
-  void cloudPush(ownerId, state, token).then((s) => {
-    syncStatus = s;
+  // 带上「上次同步的版本」，被别的设备改过就不会盲目覆盖
+  void cloudPush(ownerId, state, token, { base: state.syncedAt }).then((res) => {
+    if (res.conflictDoc) {
+      // 有冲突就交给完整同步流程去比较与合并，这里不擅自覆盖
+      syncStatus = 'error';
+      void syncNow(true);
+      return;
+    }
+    syncStatus = res.status;
   });
+}
+
+/** 采用云端存档（保留本机设备标识与账号绑定） */
+function adoptCloud(doc: GameState): void {
+  state = doc;
+  state.deviceId = deviceId;
+  if (auth.isLoggedIn()) state.accountId = auth.accountId() ?? state.accountId;
+  state.syncedAt = doc.savedAt; // 标记已与云端此版本同步
+  saveLocal(state);
+  markDirty();
+}
+
+/** 云端这份是否比本地更新（用于冲突裁决） */
+function cloudIsAhead(cloud: GameState, local: GameState): boolean {
+  if ((cloud.level ?? 1) !== (local.level ?? 1)) return (cloud.level ?? 1) > (local.level ?? 1);
+  if ((cloud.exp ?? 0) !== (local.exp ?? 0)) return (cloud.exp ?? 0) > (local.exp ?? 0);
+  return (cloud.savedAt ?? 0) > (local.savedAt ?? 0);
 }
 
 /** 本地是否还是一份「刚开局、没玩过」的空白档（不应覆盖云端真实进度）。 */
@@ -1063,17 +1087,25 @@ async function syncNow(manual: boolean): Promise<void> {
       // 若用它判断，本地永远比云端新 → 从不下载、反把云端覆盖掉）。
       const cloudNewer = r.doc.savedAt > (state.syncedAt ?? 0) + 5_000;
       if (fresh || cloudNewer) {
-        state = r.doc;
-        state.deviceId = deviceId;
-        if (auth.isLoggedIn()) state.accountId = auth.accountId() ?? state.accountId;
-        state.syncedAt = r.doc.savedAt; // 标记已与云端此版本同步
-        saveLocal(state);
-        markDirty();
+        adoptCloud(r.doc);
         if (manual) toast(fresh ? '已从云端同步进度' : '已采用云端更新的进度');
       }
     }
     normalizeProgress(state); // 推送前规整，避免越界经验被云端拒绝
-    syncStatus = await cloudPush(ownerId, state, token);
+    let pushRes = await cloudPush(ownerId, state, token, { base: state.syncedAt });
+    if (pushRes.conflictDoc) {
+      // 拉取之后云端又被改了（另一台设备正在写）：比谁更新，较新的一方胜出，
+      // 被覆盖的那份服务端已自动存进历史，仍可回滚。
+      const cloud = pushRes.conflictDoc;
+      if (cloudIsAhead(cloud, state)) {
+        adoptCloud(cloud);
+        toast('另一台设备有更新的进度，已采用');
+      } else {
+        toast('本机进度更新，已覆盖云端');
+        pushRes = await cloudPush(ownerId, state, token, { base: 0 });
+      }
+    }
+    syncStatus = pushRes.status;
     // 推送成功后，本地版本即为云端最新版本
     state.syncedAt = state.savedAt;
     // 会员等级刷新是「锦上添花」，绝不能阻塞同步主流程：

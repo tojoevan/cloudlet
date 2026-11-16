@@ -675,6 +675,10 @@ async function handleSave(req, res, cors) {
       return send(res, 400, { error: 'doc required' }, cors);
     }
 
+    // 乐观并发：客户端带上「我上次同步时云端存档的 savedAt」，
+    // 若云端已被另一台设备改过，就不覆盖，回 409 让客户端决定。
+    const baseRev = Number(url.searchParams.get('base')) || 0;
+
     // 账号模式下做双等级处理：游戏等级合理性校验 + 会员等级自动晋升
     let accP = null;
     let prevRow = null;
@@ -699,6 +703,26 @@ async function handleSave(req, res, cors) {
       doc.exp = v.exp;
       const playSeconds = parsed.doc?.stats?.playSeconds || 0;
       doc.memberTier = Math.max(Number(doc.memberTier) || 1, autoTier(playSeconds));
+
+      // 冲突判定：必须在写存档之前完成。prevP 与账号读取是并行发出的，不额外增加往返。
+      const prevRes0 = await prevP;
+      let conflictDoc = null;
+      if (prevRes0.status === 200) {
+        const pj = await prevRes0.json();
+        if (pj && pj.owner_openid === owner && pj.doc) {
+          const cloudRev = Number(pj.doc.savedAt) || 0;
+          if (baseRev > 0 && cloudRev > 0 && cloudRev !== baseRev) conflictDoc = pj.doc;
+        }
+      }
+      if (conflictDoc) {
+        return send(res, 409, {
+          error: 'conflict',
+          reason: '云端存档已被其他设备更新',
+          cloudSavedAt: Number(conflictDoc.savedAt) || 0,
+          doc: conflictDoc,
+        }, cors);
+      }
+
       // 账号镜像更新与存档写入相互独立，并行发起省去一次上游往返（约 2.5s）。
       // 这里只发起、不 await，等存档写入完成后再取结果。
       accP = lake('PUT', COLLECTION_ACCOUNTS, owner, owner, { doc });
