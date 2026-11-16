@@ -46,14 +46,31 @@ export function bakeStatic(group: THREE.Object3D): number {
     const pos = g.attributes.position;
     const src = g.attributes.color as THREE.BufferAttribute | undefined;
     const colors = new Float32Array(pos.count * 3);
+
+    // 垂直明暗：底部略暗、顶部略亮，模拟天光自上而下。
+    // 只在**没有顶点色**的零件上施加——树冠等已经自带渐变，叠加会过暗。
+    let yMin = 0;
+    let ySpan = 1;
+    if (!src) {
+      g.computeBoundingBox();
+      const bb = g.boundingBox;
+      if (bb) {
+        yMin = bb.min.y;
+        ySpan = Math.max(0.001, bb.max.y - bb.min.y);
+      }
+    }
     for (let i = 0; i < pos.count; i++) {
-      // 已有顶点色（树冠渐变/地面斑驳）与材质色相乘；没有就直接用材质色
       const r = src ? src.getX(i) : 1;
       const gg = src ? src.getY(i) : 1;
       const b = src ? src.getZ(i) : 1;
-      colors[i * 3] = c.r * r;
-      colors[i * 3 + 1] = c.g * gg;
-      colors[i * 3 + 2] = c.b * b;
+      let shade = 1;
+      if (!src) {
+        const t = Math.min(1, Math.max(0, (pos.getY(i) - yMin) / ySpan));
+        shade = 0.92 + t * 0.12; // 0.92 → 1.04
+      }
+      colors[i * 3] = c.r * r * shade;
+      colors[i * 3 + 1] = c.g * gg * shade;
+      colors[i * 3 + 2] = c.b * b * shade;
     }
     g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     for (const name of Object.keys(g.attributes)) {
