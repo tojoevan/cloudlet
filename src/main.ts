@@ -36,7 +36,7 @@ import { deliver } from './core/orders';
 import { deliverWish } from './core/wishes';
 import { ISLAND_BONUS } from './core/islandBonus';
 import { currentSeason, setSeasonOverride } from './core/season';
-import { setFestivalDate } from './core/festival';
+import { setFestivalDate, activeFestival } from './core/festival';
 import { accumulateSlowMs, shouldDowngrade } from './core/quality';
 import { clearLocal, exportCode, exportSaveFile, getDeviceId, importCode, loadLocal, saveLocal } from './core/save';
 import { canPlace } from './core/grid';
@@ -1199,6 +1199,15 @@ syncTimeOfDay();
 setInterval(syncTimeOfDay, 60_000);
 // 季节决定环境音的构成（春天鸟多、夏天虫多、冬天风大）
 audio.setSeason(currentSeason().id);
+
+// 节日：环境音构成 + 开场小旋律（只在节日变化时奏一次）
+{
+  const fest = activeFestival();
+  audio.setFestival(fest?.id ?? null);
+  if (fest) {
+    setTimeout(() => audio.playFestival(), 900);
+  }
+}
 
 // ---------- 天气 ----------
 // 自动轮换：晴天为主，偶尔下雨/下雪/落樱。玩家不用管，它自己变——

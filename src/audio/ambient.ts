@@ -62,6 +62,29 @@ export class AmbientEngine {
     }
   }
 
+  /**
+   * 节日对环境的微调：夏日祭更热闹（虫鸣↑），丰收节风更足，
+   * 雪灯节安静下来，只留一点风。
+   */
+  setFestival(fest: string | null): void {
+    switch (fest) {
+      case 'sakura':
+        this.birdMul = 1.5; this.cricketMul = 0.8; this.windMul = 0.9;
+        break;
+      case 'nightmarket':
+        this.cricketMul = 2.0; this.windMul = 0.7;
+        break;
+      case 'harvest':
+        this.windMul = 1.45; this.birdMul = 1.1;
+        break;
+      case 'snowlight':
+        this.birdMul = 0.25; this.cricketMul = 0.2; this.windMul = 1.3;
+        break;
+      default:
+        break;
+    }
+  }
+
   /** 白天/夜晚切换：鸟鸣与虫鸣此消彼长 */
   setDay(day: boolean): void {
     this.day = day;

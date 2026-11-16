@@ -126,6 +126,21 @@ export class AudioManager {
     this.ambient?.setSeason(season);
   }
 
+  /** 节日：调整环境音构成，并在变化时奏一小段提示 */
+  setFestival(fest: string | null): void {
+    this.ambient?.setFestival(fest);
+  }
+
+  /** 节日开场的小旋律（4 个上行音） */
+  playFestival(): void {
+    if (!this.ready || !this.ctx || !this.sfxBus) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime + 0.02;
+    [72, 76, 79, 84].forEach((n, i) => {
+      bell(ctx, this.sfxBus!, mtof(n), t + i * 0.12, 0.7, 0.055);
+    });
+  }
+
   /** 昼夜切换：白天鸟鸣、夜里虫鸣 */
   setDayNight(day: boolean): void {
     this.ambient?.setDay(day);
