@@ -164,12 +164,30 @@ export class OrderBoard {
  */
 export class WishBoard {
   readonly el = el('div', 'wishes');
-  private head = el('div', 'wishes-head', '心愿');
+  private head = el('button', 'wishes-head', '心愿');
   private body = el('div', 'wishes-body');
   private sig = '';
+  private collapsed = false;
 
   constructor() {
     this.el.append(this.head, this.body);
+    // 与订单面板一致的折叠行为：手机上默认收起，避免遮住岛
+    this.head.addEventListener('click', () => {
+      this.collapsed = !this.collapsed;
+      this.applyCollapsed();
+    });
+    if (window.innerWidth <= 560) {
+      this.collapsed = true;
+    }
+    this.applyCollapsed();
+  }
+
+  private count = 0;
+
+  private applyCollapsed(): void {
+    this.el.classList.toggle('collapsed', this.collapsed);
+    const label = this.count > 0 ? `心愿 ${this.count}` : '心愿';
+    this.head.textContent = `${this.collapsed ? '▸' : '▾'} ${label}`;
   }
 
   update(state: GameState, onDeliver: (id: string) => void): void {
@@ -181,7 +199,8 @@ export class WishBoard {
     this.sig = sig;
 
     this.body.textContent = '';
-    this.head.textContent = wishes.length > 0 ? `心愿 ${wishes.length}` : '心愿';
+    this.count = wishes.length;
+    this.applyCollapsed();
     this.el.classList.toggle('empty', wishes.length === 0);
 
     for (const w of wishes) {

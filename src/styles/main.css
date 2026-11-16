@@ -271,6 +271,9 @@ button {
   z-index: 4;
 }
 .wishes-head {
+  width: 100%;
+  border: none;
+  cursor: pointer;
   padding: 8px 12px;
   border-radius: var(--radius);
   background: rgba(176, 136, 249, 0.16);
@@ -281,6 +284,18 @@ button {
 }
 .wishes.empty {
   display: none;
+}
+.wishes.collapsed {
+  width: auto;
+  /* 收起时不再撑满整行，否则手机上会变成一条很长的空条 */
+  right: auto;
+}
+.wishes.collapsed .wishes-body {
+  display: none;
+}
+.wishes.collapsed .wishes-head {
+  width: auto;
+  white-space: nowrap;
 }
 .wishes-body {
   display: flex;
