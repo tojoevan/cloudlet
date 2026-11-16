@@ -1290,6 +1290,45 @@ button {
 }
 
 
+.chip.more {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 8px 12px;
+  letter-spacing: 1px;
+}
+
+/* 更多菜单：默认收起，点一下在下方展开 */
+.hud-more {
+  /* 用 fixed + 高 z-index：订单面板也在顶栏里，absolute 会被它压住 */
+  position: fixed;
+  top: calc(56px + env(safe-area-inset-top, 0px));
+  right: 10px;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 12px 32px rgba(43, 58, 85, 0.2);
+  z-index: 30;
+}
+.hud-more.open {
+  display: flex;
+}
+.hud-more-item {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+}
+.hud-more-item .chip {
+  width: 100%;
+  box-shadow: none;
+  background: rgba(43, 58, 85, 0.05);
+}
+
 /* 弹窗打开时，左右悬浮面板退到背景里 */
 body.modal-open .wishes,
 body.modal-open .hud .orders {

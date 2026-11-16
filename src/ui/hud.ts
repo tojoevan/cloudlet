@@ -49,21 +49,41 @@ export class HUD {
   private festival = el('div', 'chip festival');
   /** 满意度：居民过得开不开心 */
   private joy = makeChip('joy', 'joy');
+  /** 「更多」菜单：把图鉴/成就/会员这些低频入口收起来，顶栏只留核心指标 */
+  private more = el('button', 'chip more clickable', '⋯');
+  private morePanel = el('div', 'hud-more');
 
   constructor(onCodex: () => void, onAch: () => void, onInv: () => void) {
+    // 顶栏只保留核心指标：等级 / 金币 / 繁荣人口 / 仓库 / 满意度 / 节日 / 更多
     this.el.append(
       this.lv.root,
       this.coin.root,
       this.prop.root,
       this.store.root,
-      this.fever,
-      this.codex.root,
-      this.ach.root,
-      this.tier.root,
-      this.festival,
       this.joy.root,
+      this.fever,
+      this.festival,
+      this.more,
+      this.morePanel,
     );
     this.festival.style.display = 'none';
+
+    // 更多菜单里的三个入口
+    const mkItem = (chip: Chip, onClick: () => void) => {
+      const item = el('button', 'hud-more-item');
+      item.appendChild(chip.root);
+      item.addEventListener('click', () => {
+        this.morePanel.classList.remove('open');
+        onClick();
+      });
+      return item;
+    };
+    this.morePanel.append(
+      mkItem(this.codex, onCodex),
+      mkItem(this.ach, onAch),
+      mkItem(this.tier, () => {}),
+    );
+    this.more.addEventListener('click', () => this.morePanel.classList.toggle('open'));
     this.fever.style.display = 'none';
     this.codex.root.addEventListener('click', onCodex);
     this.ach.root.addEventListener('click', onAch);

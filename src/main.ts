@@ -1260,6 +1260,7 @@ setInterval(() => {
       if (panel === 'codex') openCodexPanel(state);
       else if (panel === 'ach') openAchievementsPanel(state);
       else if (panel === 'build') bar.el.querySelector<HTMLButtonElement>('.btn.primary, .btn')?.click();
+      else if (panel === 'more') document.querySelector<HTMLButtonElement>('.chip.more')?.click();
     }, 700);
   }
 }
