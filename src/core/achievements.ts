@@ -32,6 +32,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'focus_10', name: '心流常客', desc: '累计完成 10 次番茄钟', coins: 2_000, check: (s) => s.stats.focusSessions >= 10 },
   { id: 'codex_10', name: '收藏家', desc: '图鉴收录 10 项', coins: 500, check: (s) => codexFound(s) >= 10 },
   { id: 'codex_all', name: '博物学家', desc: '图鉴全部收录', coins: 5_000, check: (s) => codexFound(s) >= codexTotal() },
+  { id: 'wishes_10', name: '热心肠', desc: '累计满足 10 个心愿', coins: 800, check: (s) => (s.stats.wishesDone ?? 0) >= 10 },
   { id: 'prosperity_50', name: '宜居小镇', desc: '繁荣度达到 50', coins: 1_000, check: (s) => prosperityOf(s) >= 50 },
 ];
 

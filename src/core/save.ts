@@ -1,6 +1,7 @@
 import { SAVE_VERSION, normalizeProgress } from './economy';
 import { createInitialState } from './state';
 import { ensureIslands } from './island';
+import { fillWishes } from './wishes';
 import type { GameState } from './types';
 
 const SAVE_KEY = 'cloudlet.save';
@@ -104,6 +105,9 @@ function normalize(s: GameState): GameState {
   ensureIslands(s);
   normalizeProgress(s); // 加载即规整进度，旧越界档不再污染后续推送
   s.syncedAt ??= 0; // 旧存档补齐「上次同步点」，避免 undefined 参与比较
+  if (!Array.isArray(s.wishes)) s.wishes = [];
+  // 老档没有心愿：加载时补满，不然要等第一次交付才会出现
+  if (s.wishes.length === 0) fillWishes(s, Date.now());
   s.lastYieldAt ??= 0; // 在线被动收益的结算锚点
   s.yieldCarry ??= 0; // 被动收益小数进位
   return s;

@@ -36,6 +36,7 @@ import { deliver } from '../src/core/orders';
 import { exportCode, importCode, loadLocal, migrate, saveLocal } from '../src/core/save';
 import { advance, rewardMult, tick } from '../src/core/simulation';
 import { createInitialState } from '../src/core/state';
+import { deliverWish } from '../src/core/wishes';
 import type { GameState } from '../src/core/types';
 
 let pass = 0;
@@ -334,6 +335,23 @@ section('放置循环（P0 回归）');
   const c2 = g.coins;
   tick(g, t + 60_000 + 2 * 3600_000);
   check('长时间停顿只补 10 分钟', g.coins - c2 < 200, `+${g.coins - c2}`);
+}
+
+section('居民心愿');
+{
+  const w = createInitialState('wish-test');
+  check('初始就有心愿', (w.wishes ?? []).length > 0, String(w.wishes?.length));
+  const wish = w.wishes[0];
+  w.inventory = { [wish.item]: wish.count };
+  const coins0 = w.coins;
+  const gems0 = w.gems;
+  const r = deliverWish(w, wish.id, Date.now());
+  check('能满足心愿', r !== null);
+  check('满足后给金币', w.coins > coins0, `+${w.coins - coins0}`);
+  check('满足后给宝石', w.gems > gems0, `+${w.gems - gems0}`);
+  check('心愿交付后自动补满', (w.wishes ?? []).length === 2, String(w.wishes?.length));
+  check('物品被扣掉', (w.inventory[wish.item] ?? 0) === 0);
+  check('统计计数增加', (w.stats.wishesDone ?? 0) === 1);
 }
 
 console.log(`\n${pass} 通过，${fail} 失败\n`);

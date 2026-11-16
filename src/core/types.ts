@@ -78,6 +78,20 @@ export interface OrderLine {
   count: number;
 }
 
+/**
+ * 居民心愿：比订单更轻、更私人——一个人想要某件东西，
+ * 满足后给金币 + 宝石。宝石原本只能靠番茄钟获得，心愿让它成为"玩出来的货币"。
+ */
+export interface Wish {
+  id: string;
+  villager: string;
+  item: ItemId;
+  count: number;
+  coins: number;
+  gems: number;
+  createdAt: number;
+}
+
 export interface Order {
   id: string;
   lines: OrderLine[];
@@ -125,6 +139,8 @@ export interface Stats {
   bestCombo: number;
   focusSessions: number;
   focusMinutes: number;
+  /** 累计满足的心愿数（老档可能没有，读取时按 0 处理） */
+  wishesDone?: number;
 }
 
 /** 番茄钟。专注期间小镇产能提升，把「陪你学习」变成游戏机制。 */
@@ -178,6 +194,8 @@ export interface GameState {
   buildings: Building[];
   inventory: Partial<Record<ItemId, number>>;
   orders: Order[];
+  /** 居民心愿（最多 WISH_SLOTS 条） */
+  wishes: Wish[];
   stats: Stats;
   settings: Settings;
   /** Fever 结束时刻（ms），期间收益翻倍。 */

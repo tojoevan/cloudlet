@@ -33,6 +33,7 @@ import { addItem, itemName, normalizeProgress } from './core/economy';
 import { cancelFocus, focusProgress, isFocusing, settleFocus, startFocus } from './core/focus';
 import { autoFocusStep } from './core/autoplay';
 import { deliver } from './core/orders';
+import { deliverWish } from './core/wishes';
 import { clearLocal, exportCode, exportSaveFile, getDeviceId, importCode, loadLocal, saveLocal } from './core/save';
 import { canPlace } from './core/grid';
 import { advance, tick } from './core/simulation';
@@ -49,7 +50,7 @@ import { SceneView } from './render/scene';
 import type { PerfSnapshot } from './render/scene';
 import { setScheme, getSchemeId } from './render/palette';
 import { closeModal, el, floatAt, fmtDur, initUI, openModal, toast } from './ui/dom';
-import { ActionBar, HUD, OrderBoard } from './ui/hud';
+import { ActionBar, HUD, OrderBoard, WishBoard } from './ui/hud';
 import { SpeechBubble } from './ui/speech';
 import {
   openAchievementsPanel,
@@ -139,8 +140,11 @@ const hud = new HUD(
   () => openInventoryPanel(state, (id, count) => doSell(id, count)),
 );
 const board = new OrderBoard();
+const wishBoard = new WishBoard();
 // 订单面板挂到顶部栏「会员等级」芯片之后，随顶栏流式排布，不再悬浮遮挡画面
 hud.el.appendChild(board.el);
+// 心愿面板挂在左侧、与右侧订单对称，避免顶栏被挤成一条长龙
+uiRoot.appendChild(wishBoard.el);
 // 手机上默认收起订单面板：三张卡会盖住半个岛屿，点标题头随时展开
 if (window.innerWidth <= 560) board.el.classList.add('collapsed');
 
@@ -466,6 +470,19 @@ function doHarvest(plotId: number): void {
   audio.play('harvest');
   if (r.data.count > 0) flyAtPlot(plotId, `+${r.data.count}`);
   if (r.data.overflow > 0) floatAtPlot(plotId, `仓满折现`, 'gold');
+  markDirty();
+  saveNow();
+}
+
+function doWish(id: string): void {
+  const r = deliverWish(state, id, Date.now());
+  if (!r) {
+    audio.play('error');
+    return toast('物品还不够');
+  }
+  audio.play('deliver');
+  floatAtCanvas(`+${r.coins} 金币 · +${r.gems} 宝石`, 'gold');
+  toast(`${r.villager} 很开心！`);
   markDirty();
   saveNow();
 }
@@ -1321,6 +1338,7 @@ function frame(t: number): void {
 
   hud.update(state, now, auth.memberTier());
   board.update(state, doDeliver);
+  wishBoard.update(state, doWish);
   bar.update(state, now);
   autoChatter(now);
   speech.update(view.camera, canvas, now);

@@ -6,7 +6,7 @@ import type { GameState, ItemId, Order, OrderLine, ProductId } from './types';
 
 export const ORDER_SLOTS = 3;
 /** 委托人的名字池：都是小镇居民的感觉，带一点家常气 */
-const VILLAGERS = ['小满', '阿吉', '柚子', '豆豆', '老周', '桃桃', '阿福', '米粒', '小鹿', '团子'];
+export const VILLAGERS = ['小满', '阿吉', '柚子', '豆豆', '老周', '桃桃', '阿福', '米粒', '小鹿', '团子'];
 /** 村民委托的小费倍率：比系统派单略高一点，让"有人找你"这件事更值得期待 */
 const VILLAGER_TIP = 1.12;
 const FEVER_COMBO = 5;
@@ -14,7 +14,7 @@ const FEVER_MS = 30_000;
 const COMBO_WINDOW_MS = 60_000;
 
 /** 玩家当前能产出的物品：已解锁作物 + 已有工厂能做的产品 */
-function availableItems(state: GameState): ItemId[] {
+export function availableItems(state: GameState): ItemId[] {
   const crops = CROP_ORDER.filter((id) => CROPS[id].unlockLevel <= state.level);
   const products = state.factories.flatMap((f) =>
     recipesOf(f.type, state.level)
@@ -39,7 +39,7 @@ function rollLines(items: ItemId[]): OrderLine[] {
 }
 
 /** 挑一个当前订单里还没出现过的居民，避免三张卡全是同一个人 */
-function pickVillager(state: GameState): string {
+export function pickVillager(state: GameState): string {
   const used = new Set(state.orders.map((o) => o.villager).filter(Boolean));
   const pool = VILLAGERS.filter((v) => !used.has(v));
   const list = pool.length > 0 ? pool : VILLAGERS;

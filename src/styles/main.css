@@ -258,6 +258,64 @@ button {
 }
 
 /* ---------- 订单板 ---------- */
+.wishes {
+  /* 左侧悬浮，与右侧订单形成对称构图 */
+  position: absolute;
+  top: calc(58px + env(safe-area-inset-top, 0px));
+  left: 10px;
+  width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
+  z-index: 4;
+}
+.wishes-head {
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: rgba(176, 136, 249, 0.16);
+  color: #6d55a8;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+.wishes.empty {
+  display: none;
+}
+.wishes-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wish {
+  background: var(--c-panel);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  backdrop-filter: blur(8px);
+}
+.wish .who {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-sub);
+  margin-bottom: 6px;
+}
+.wish .foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+.wish .reward {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-gold);
+}
+.wish .reward .gems {
+  color: #8a6bd6;
+}
+
 .orders {
   position: absolute;
   top: calc(58px + env(safe-area-inset-top, 0px));
@@ -1093,6 +1151,13 @@ button {
   }
   .hud .orders-body {
     max-height: 26vh;
+  }
+  /* 手机上心愿面板落到顶栏下方，占满整行 */
+  .wishes {
+    top: calc(150px + env(safe-area-inset-top, 0px));
+    left: 10px;
+    right: 10px;
+    width: auto;
   }
   /* 底部按钮等分整行，保证 5 个都能一屏点到 */
   .actionbar {

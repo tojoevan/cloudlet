@@ -158,6 +158,56 @@ export class OrderBoard {
   }
 }
 
+/**
+ * 居民心愿面板：比订单更轻、更私人的请求。
+ * 放两三条就够——它的作用是"让小镇有人味"，不是替代订单。
+ */
+export class WishBoard {
+  readonly el = el('div', 'wishes');
+  private head = el('div', 'wishes-head', '心愿');
+  private body = el('div', 'wishes-body');
+  private sig = '';
+
+  constructor() {
+    this.el.append(this.head, this.body);
+  }
+
+  update(state: GameState, onDeliver: (id: string) => void): void {
+    const wishes = state.wishes ?? [];
+    const sig = wishes
+      .map((w) => `${w.id}:${state.inventory[w.item] ?? 0}`)
+      .join('|');
+    if (sig === this.sig) return;
+    this.sig = sig;
+
+    this.body.textContent = '';
+    this.head.textContent = wishes.length > 0 ? `心愿 ${wishes.length}` : '心愿';
+    this.el.classList.toggle('empty', wishes.length === 0);
+
+    for (const w of wishes) {
+      const card = el('div', 'wish');
+      card.appendChild(el('div', 'who', `${w.villager} 想要`));
+      const have = state.inventory[w.item] ?? 0;
+      const ok = have >= w.count;
+      const need = el('div', `need ${ok ? 'ok' : ''}`.trim());
+      need.appendChild(swatch(itemColor(w.item)));
+      need.appendChild(el('span', undefined, `${itemName(w.item)} ${have}/${w.count}`));
+      card.appendChild(need);
+
+      const foot = el('div', 'foot');
+      const reward = el('span', 'reward', `${fmt(w.coins)} 金币`);
+      reward.appendChild(el('span', 'gems', ` +${w.gems} 宝石`));
+      foot.appendChild(reward);
+      const btn = el('button', 'btn sm', '满足');
+      btn.disabled = !ok;
+      btn.addEventListener('click', () => onDeliver(w.id));
+      foot.appendChild(btn);
+      card.appendChild(foot);
+      this.body.appendChild(card);
+    }
+  }
+}
+
 export interface ActionHandlers {
   onHarvestAll: () => void;
   onReplant: () => void;

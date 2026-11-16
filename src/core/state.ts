@@ -1,5 +1,6 @@
 import { SAVE_VERSION } from './economy';
 import { fillOrders } from './orders';
+import { fillWishes } from './wishes';
 import { ensureIslands, defaultIslands, ROUND_ID } from './island';
 import type { GameState } from './types';
 
@@ -30,6 +31,7 @@ export function createInitialState(deviceId: string): GameState {
     buildings: [{ id: 'b_0', type: 'house', seed: 1, level: 1 }],
     inventory: {},
     orders: [],
+    wishes: [],
     stats: { harvests: 0, ordersDone: 0, playSeconds: 0, bestCombo: 0, focusSessions: 0, focusMinutes: 0 },
     settings: { channel: 'citypop', radioUrl: '', volume: 0.6, powerSave: false, quality: 'standard', colorScheme: 'macaron', cloudSync: false, perfMonitor: false },
     feverUntil: 0,
@@ -44,6 +46,7 @@ export function createInitialState(deviceId: string): GameState {
     islandData: {},
   };
   fillOrders(state, now);
+  fillWishes(state, now);
   ensureIslands(state);
   return state;
 }
