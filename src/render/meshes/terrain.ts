@@ -251,7 +251,7 @@ function makeGridLines(_half: number, _corner: number): THREE.LineSegments {
 
 export type TreeKind = 'pine' | 'broadleaf' | 'umbrella';
 
-export function makeTree(seed: number, kind?: TreeKind): THREE.Group {
+export function makeTree(seed: number, kind?: TreeKind, fruit = false): THREE.Group {
   const rng = mulberry32(seed);
   const k = kind ?? pick(rng, ['pine', 'broadleaf', 'broadleaf', 'umbrella'] as const);
   const g = new THREE.Group();
@@ -311,6 +311,18 @@ export function makeTree(seed: number, kind?: TreeKind): THREE.Group {
       blob.position.set(range(rng, -0.25, 0.25), trunkH + range(rng, 0.05, 0.4), range(rng, -0.25, 0.25));
       blob.castShadow = true;
       foliage.add(blob);
+    }
+  }
+
+  // 果树：树冠上点几颗红果，一眼就能和普通树区分开（果园岛的辨识度靠它）
+  if (fruit && k !== 'pine') {
+    for (let i = 0; i < 4; i++) {
+      const r = 0.06 + rng() * 0.03;
+      const berry = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), mat(0xe4573f));
+      const a = rng() * Math.PI * 2;
+      const rr = 0.22 + rng() * 0.18;
+      berry.position.set(Math.cos(a) * rr, trunkH + 0.18 + rng() * 0.3, Math.sin(a) * rr);
+      foliage.add(berry);
     }
   }
 

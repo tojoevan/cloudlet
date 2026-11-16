@@ -37,6 +37,7 @@ import { exportCode, importCode, loadLocal, migrate, saveLocal } from '../src/co
 import { advance, rewardMult, tick } from '../src/core/simulation';
 import { createInitialState } from '../src/core/state';
 import { deliverWish } from '../src/core/wishes';
+import { switchIsland } from '../src/core/island';
 import type { GameState } from '../src/core/types';
 
 let pass = 0;
@@ -352,6 +353,21 @@ section('居民心愿');
   check('心愿交付后自动补满', (w.wishes ?? []).length === 2, String(w.wishes?.length));
   check('物品被扣掉', (w.inventory[wish.item] ?? 0) === 0);
   check('统计计数增加', (w.stats.wishesDone ?? 0) === 1);
+}
+
+section('岛屿解锁');
+{
+  const isl = createInitialState('island-test');
+  check('默认有 6 座岛', isl.islands.length === 6, String(isl.islands.length));
+  check('繁荣不足时切不到果园岛', switchIsland(isl, 'orchard') === false);
+  check('仍停在原岛', isl.activeIsland === 'round', isl.activeIsland);
+  // 堆够繁荣度（每栋小屋 +1）
+  for (let i = 0; i < 30; i++) {
+    isl.buildings.push({ id: `h${i}`, type: 'house', seed: i, level: 1 } as never);
+  }
+  check('繁荣 30 后可以切到果园岛', switchIsland(isl, 'orchard') === true);
+  check('激活岛已切换', isl.activeIsland === 'orchard', isl.activeIsland);
+  check('切换后可切回', switchIsland(isl, 'round') === true);
 }
 
 console.log(`\n${pass} 通过，${fail} 失败\n`);

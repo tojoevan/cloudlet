@@ -1,6 +1,7 @@
 import { ACHIEVEMENTS } from '../core/achievements';
 import { codexFound, codexTotal } from '../core/codex';
 import { itemName, itemPrice, populationOf, SELL_RATE } from '../core/economy';
+import { prosperityOf } from '../core/economy';
 import { FOCUS_PRESETS, focusRemainMs, isFocusing } from '../core/focus';
 import type { BuildingType, CropId, FactoryType, GameState, ItemId, Settings } from '../core/types';
 import { BUILDINGS, BUILDING_ORDER } from '../data/buildings';
@@ -180,16 +181,22 @@ export function openBuildPanel(
   // 岛屿切换：两座独立岛，各有自己的建筑/农田/工厂
   body.appendChild(el('p', 'hint', '岛屿'));
   const islRow = el('div', 'row');
+  const prosperity = prosperityOf(state);
   for (const isl of state.islands) {
+    const unlocked = prosperity >= (isl.reqProsperity ?? 0);
     const b = el(
       'button',
-      `btn sm${isl.id === state.activeIsland ? ' on' : ''}`.trim(),
-      isl.name,
+      // 已解锁：高亮当前岛；未解锁：置灰并直接写出还需要多少繁荣度
+      `btn sm${isl.id === state.activeIsland ? ' on' : ''}${unlocked ? '' : ' locked'}`.trim(),
+      unlocked ? isl.name : `${isl.name}（繁荣 ${isl.reqProsperity}）`,
     );
-    b.addEventListener('click', () => {
-      ctx.onSwitchIsland(isl.id);
-      closeModal();
-    });
+    b.disabled = !unlocked;
+    if (unlocked) {
+      b.addEventListener('click', () => {
+        ctx.onSwitchIsland(isl.id);
+        closeModal();
+      });
+    }
     islRow.appendChild(b);
   }
   body.appendChild(islRow);

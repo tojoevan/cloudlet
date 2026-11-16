@@ -22,6 +22,10 @@ export interface IslandMeta {
   id: string;
   shape: IslandShape;
   name: string;
+  /** 解锁所需繁荣度（缺省 0 = 一开始就有） */
+  reqProsperity?: number;
+  /** 一句话说明这座岛有什么 */
+  desc?: string;
 }
 
 /** 单座岛自带的玩法数据。顶层 GameState 的 buildings/plots/factories 始终指向「当前激活岛」，

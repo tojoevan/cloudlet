@@ -1,4 +1,5 @@
 import type { GameState, IslandData, IslandMeta } from './types';
+import { prosperityOf } from './economy';
 import { PLOT_COUNT } from './state';
 
 /** 方岛网格单元尺寸：与农田田块间距一致，即「农田 = 1 格」 */
@@ -23,12 +24,25 @@ export function makeEmptyIslandData(): IslandData {
   };
 }
 
-/** 默认双岛：圆岛（主岛，沿用既有玩法）+ 方岛（网格新岛）。以后可在此追加更多空岛。 */
+/**
+ * 默认岛屿表：两座起始岛 + 四座按繁荣度解锁的岛。
+ * 多岛是这类游戏最自然的长线目标——新地图同时带来新的空间与新的目标感。
+ */
 export function defaultIslands(): IslandMeta[] {
   return [
-    { id: ROUND_ID, shape: 'round', name: '云上町' },
-    { id: SQUARE_ID, shape: 'square', name: '方舟町' },
+    { id: ROUND_ID, shape: 'round', name: '云上町', reqProsperity: 0, desc: '一切开始的地方' },
+    { id: SQUARE_ID, shape: 'square', name: '方舟町', reqProsperity: 0, desc: '规整的网格街区' },
+    { id: 'orchard', shape: 'round', name: '果园岛', reqProsperity: 30, desc: '坡地上种满果树' },
+    { id: 'ranch', shape: 'square', name: '牧场岛', reqProsperity: 80, desc: '牛羊在围栏里吃草' },
+    { id: 'onsen', shape: 'round', name: '温泉岛', reqProsperity: 160, desc: '雾气袅袅的歇脚处' },
+    { id: 'summit', shape: 'round', name: '云顶', reqProsperity: 300, desc: '离云最近的一小块地' },
   ];
+}
+
+/** 繁荣度是否够开这座岛 */
+export function isIslandUnlocked(meta: IslandMeta | undefined, prosperity: number): boolean {
+  if (!meta) return false;
+  return prosperity >= (meta.reqProsperity ?? 0);
 }
 
 /**
@@ -44,6 +58,10 @@ export function ensureIslands(state: GameState): void {
   }
   if (!state.activeIsland) state.activeIsland = ROUND_ID;
   if (!state.islandData) state.islandData = {};
+  // 老存档只有两座岛：把后来新增的岛补进去（数据留空，切过去再建）
+  for (const meta of defaultIslands()) {
+    if (!state.islands.some((x) => x.id === meta.id)) state.islands.push(meta);
+  }
   if (!state.islandData[SQUARE_ID]) state.islandData[SQUARE_ID] = makeEmptyIslandData();
   if (!state.islands.some((x) => x.id === state.activeIsland)) {
     state.activeIsland = state.islands[0].id;
@@ -64,6 +82,8 @@ export function switchIsland(state: GameState, id: string): boolean {
   if (id === state.activeIsland) return false;
   const target = state.islands.find((x) => x.id === id);
   if (!target) return false;
+  // 未解锁的岛不允许切入（繁荣度不够时 UI 也会置灰）
+  if (!isIslandUnlocked(target, prosperityOf(state))) return false;
 
   state.islandData[state.activeIsland] = {
     buildings: state.buildings,

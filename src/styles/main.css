@@ -1132,6 +1132,18 @@ button {
   }
 }
 
+/* 中等宽度（平板/小窗口）：订单面板退出顶栏流式排布，
+   否则顶栏一换行，整块订单会掉到画面正中间 */
+@media (max-width: 1200px) {
+  .hud .orders {
+    position: absolute;
+    right: 0;
+    top: calc(52px + env(safe-area-inset-top, 0px));
+    width: 208px;
+    max-width: none;
+  }
+}
+
 /* ---------- 窄屏（手机）断点：休闲玩家大量在手机上玩 ---------- */
 @media (max-width: 560px) {
   .hud {
@@ -1160,6 +1172,9 @@ button {
   }
   /* 订单面板独占一行，内部可滚动，避免把顶栏挤成三行 */
   .hud .orders {
+    position: static;
+    right: auto;
+    top: auto;
     width: 100%;
     max-width: 100%;
     margin-top: 2px;

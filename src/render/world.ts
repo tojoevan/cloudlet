@@ -133,6 +133,8 @@ export class World {
   /** 浮空岛本体（整圈可随建筑扩张而重建变大），与 root 分离便于单独重建 */
   private island: THREE.Group | null = null;
   private islandRadius = ISLAND_RADIUS;
+  /** 当前岛屿 id：用于给不同岛加专属装饰 */
+  private islandId = 'round';
   private factories = new Map<string, THREE.Group>();
   /** 工厂头顶的运转气泡，与工厂一一对应 */
   private bubbles = new Map<string, Bubbles>();
@@ -177,7 +179,10 @@ export class World {
     scene.add(this.root);
     this.root.add(this.agents.root);
     // 首屏就按当前激活岛形状建地形，避免存档停在方岛时错配成圆地形
-    if (state) this.islandShape = activeIslandMeta(state).shape;
+    if (state) {
+      this.islandShape = activeIslandMeta(state).shape;
+      this.islandId = state.activeIsland;
+    }
     this.buildTerrain();
     this.buildFarm();
 
@@ -200,6 +205,8 @@ export class World {
     this.root.add(this.agents.root);
     // 必须在 buildTerrain 之前确定当前岛形状，否则会用上一次的旧形状重建地形
     this.islandShape = activeIslandMeta(state).shape;
+    // islandId 必须在 buildTerrain 之前确定：专属装饰依赖它
+    this.islandId = state.activeIsland;
     this.buildTerrain();
     this.buildFarm();
     this.hoverRing = makePlotRing(1.0, 0xffffff);
@@ -249,6 +256,81 @@ export class World {
     } else {
       this.buildIsland(this.islandRadius);
       this.decorateRound();
+    }
+    this.decorateFlavor();
+  }
+
+  /**
+   * 每座岛自己的辨识度。
+   * 如果解锁出来的新岛长得和主岛一模一样，"开新岛"这件事就没有惊喜；
+   * 这里用最省成本的三种手段区分：果树、围栏牧场、岩石与温泉雾气。
+   */
+  private decorateFlavor(): void {
+    if (this.lowSpec) return;
+    const R = this.islandRadius;
+    switch (this.islandId) {
+      case 'orchard': {
+        // 果园：一圈结果子的树
+        for (let i = 0; i < 14; i++) {
+          const a = (i / 14) * Math.PI * 2 + 0.3;
+          const r = R * (0.52 + (i % 3) * 0.09);
+          const t = makeTree(i * 7717 + 3, 'broadleaf', true);
+          t.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+          this.root.add(t);
+          this.shadowAt(t.position.x, t.position.z, 0.9);
+        }
+        break;
+      }
+      case 'ranch': {
+        // 牧场：围出一块草地，摆几个木桶
+        // 牧场围在岛的一角，别压到中央农田上
+        const cx = -4.4;
+        const cz = 4.2;
+        const half = 1.9;
+        for (let i = 0; i < 4; i++) {
+          const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+          const len = half * Math.SQRT2;
+          this.addProp(makeFenceLine(len), cx + Math.cos(a) * half * 0.7, cz + Math.sin(a) * half * 0.7, -a, 1.2);
+        }
+        for (const [x, z] of [[cx - 0.9, cz - 1.0], [cx + 1.1, cz + 0.7], [cx + 0.6, cz - 1.2]] as [number, number][]) {
+          this.addProp(makeBarrels(500 + Math.abs(x * 31 + z)), x, z, 0, 0.4);
+        }
+        break;
+      }
+      case 'onsen': {
+        // 温泉：散落的巨石 + 三缕水汽
+        for (let i = 0; i < 9; i++) {
+          const a = (i / 9) * Math.PI * 2 + 1.1;
+          const r = R * (0.35 + (i % 4) * 0.11);
+          const rock = makeRock(i * 991);
+          rock.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+          rock.scale.setScalar(1.4 + (i % 3) * 0.3);
+          this.root.add(rock);
+          this.shadowAt(rock.position.x, rock.position.z, 0.7);
+        }
+        for (let i = 0; i < 3; i++) {
+          const steam = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.28, 0.5, 1.5, 8, 1, true),
+            matOwn(0xffffff, { transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide }),
+          );
+          steam.position.set(-1.2 + i * 1.2, 0.75, 0.8 + (i % 2) * 0.6);
+          this.root.add(steam);
+        }
+        break;
+      }
+      case 'summit': {
+        // 云顶：低空飘几朵小云
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          const cloud = makeCloud(i * 313);
+          cloud.position.set(Math.cos(a) * (R * 0.7), 1.6 + (i % 3) * 0.7, Math.sin(a) * (R * 0.7));
+          cloud.scale.setScalar(0.55);
+          this.root.add(cloud);
+        }
+        break;
+      }
+      default:
+        break;
     }
   }
 
@@ -889,6 +971,7 @@ export class World {
   sync(state: GameState, now: number, lowSpec = false): void {
     this.lowSpec = lowSpec;
     this.islandShape = activeIslandMeta(state).shape;
+    this.islandId = state.activeIsland;
     this.syncCrops(state);
     this.syncBuildings(state);
     this.syncFactories(state);
