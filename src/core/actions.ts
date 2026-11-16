@@ -46,13 +46,17 @@ export function plant(state: GameState, plotId: number, crop: CropId, now: numbe
   plot.crop = crop;
   plot.plantedAt = now;
   // 岛屿加成：果园岛的水果类作物长得更快
-  // 岛屿加成 × 收集奖励 × 当季加成 × 昼夜（夜里露水，作物略快）
+  // 岛屿加成 × 收集奖励 × 当季加成 × 昼夜（夜里露水，作物略快）× 节日
+  // 再乘一个「新手加速」：前 3 次收获之前作物长得快一倍。
+  // 首株小麦原本要等 30 秒，对小学生来说太久——第一分钟必须有反馈。
+  const beginner = (state.stats.harvests ?? 0) < 3 ? 2 : 1;
   const speed =
     cropSpeed(state, crop) *
     collectionCropSpeed(state) *
     seasonCropSpeed(crop) *
     dayNightCropSpeed() *
-    festivalCropSpeed();
+    festivalCropSpeed() *
+    beginner;
   plot.readyAt = now + Math.round(CROPS[crop].growMs / speed);
   state.lastCrop = crop;
   return { ok: true, data: undefined };

@@ -398,6 +398,7 @@ section('岛屿加成');
   setSeasonOverride('summer'); // 夏天对小麦无加成，断言才可复现
   const b = createInitialState('bonus-test');
   b.level = 12; // 草莓需要 10 级
+  b.stats.harvests = 3; // 跳过新手加速，断言的是常规倍率
   const t = Date.now();
   // 主岛：草莓按原速
   plant(b, 0, 'strawberry', t);
@@ -421,6 +422,7 @@ section('收集奖励');
   setSeasonOverride('summer');
   const c = createInitialState('collection-test');
   c.level = 12;
+  c.stats.harvests = 3; // 跳过新手加速
   const t = Date.now();
   // 未集齐时无加成
   plant(c, 0, 'wheat', t);
@@ -594,6 +596,23 @@ section('居民对话');
   setFestivalDate(null);
   setSeasonOverride(null);
   setNightOverride(false);
+}
+
+section('新手加速');
+{
+  setSeasonOverride('summer'); // 夏天对小麦无加成，便于比较
+  setNightOverride(false);
+  setFestivalDate(null);
+  const b = createInitialState('beginner-test');
+  const t = Date.now();
+  plant(b, 0, 'wheat', t);
+  const first = b.plots[0].readyAt - t;
+  check('首株作物只需一半时间', first === 15_000, String(first));
+  b.stats.harvests = 3; // 收满三次后恢复正常
+  plant(b, 1, 'wheat', t);
+  const later = b.plots[1].readyAt - t;
+  check('三次收获后恢复原速', later === 30_000, String(later));
+  setSeasonOverride(null);
 }
 
 console.log(`\n${pass} 通过，${fail} 失败\n`);
