@@ -158,6 +158,7 @@ export class World {
   private spotsSig = '';
   /** 自动小径（把散落的建筑串成街区） */
   private pathMesh: THREE.Mesh | null = null;
+  private pathCurb: THREE.Mesh | null = null;
   /** 沿街设施：重建路径时要先清掉旧的，否则每加一栋房子就会重复叠一层 */
   private pathProps: THREE.Object3D[] = [];
   private pathGeo: THREE.BufferGeometry | null = null;
@@ -398,6 +399,11 @@ export class World {
       this.pathMesh = null;
       this.pathGeo = null;
     }
+    if (this.pathCurb) {
+      this.root.remove(this.pathCurb);
+      this.pathCurb.geometry.dispose();
+      this.pathCurb = null;
+    }
     if (this.islandShape !== 'square') return;
 
     const start = Math.floor((SQUARE_N - 4) / 2); // 农田 4×4 的左上角
@@ -448,9 +454,16 @@ export class World {
     const positions: number[] = [];
     const colors: number[] = [];
     const indices: number[] = [];
+    // 路缘：比路面大一圈、压深一档的底色，让铺装与草地之间有明确边界
+    const curbPos: number[] = [];
+    const curbCol: number[] = [];
+    const curbIdx: number[] = [];
     const base = new THREE.Color(getPalette().path);
+    const curbBase = base.clone().lerp(new THREE.Color(0x8a8f7a), 0.45);
     const half = CELL * 0.40;
+    const curbHalf = half + 0.045;
     let vi = 0;
+    let ci = 0;
     for (const key of cells) {
       const [gx, gz] = key.split(',').map(Number);
       const c = cellToWorld(gx, gz);
@@ -460,6 +473,17 @@ export class World {
       for (let k = 0; k < 4; k++) colors.push(col.r, col.g, col.b);
       indices.push(vi, vi + 2, vi + 1, vi, vi + 3, vi + 2);
       vi += 4;
+
+      const cc = curbBase.clone().multiplyScalar(jitterK);
+      curbPos.push(
+        c.x - curbHalf, 0, c.z - curbHalf,
+        c.x + curbHalf, 0, c.z - curbHalf,
+        c.x + curbHalf, 0, c.z + curbHalf,
+        c.x - curbHalf, 0, c.z + curbHalf,
+      );
+      for (let k = 0; k < 4; k++) curbCol.push(cc.r, cc.g, cc.b);
+      curbIdx.push(ci, ci + 2, ci + 1, ci, ci + 3, ci + 2);
+      ci += 4;
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -476,11 +500,32 @@ export class World {
         polygonOffsetUnits: -2,
       }),
     );
-    mesh.position.y = 0.018;
+    mesh.position.y = 0.02;
     mesh.receiveShadow = true;
     this.root.add(mesh);
     this.pathMesh = mesh;
     this.pathGeo = geo;
+
+    // 路缘单独一个网格（共 1 次绘制），压在路面下方 6mm
+    const curbGeo = new THREE.BufferGeometry();
+    curbGeo.setAttribute('position', new THREE.Float32BufferAttribute(curbPos, 3));
+    curbGeo.setAttribute('color', new THREE.Float32BufferAttribute(curbCol, 3));
+    curbGeo.setIndex(curbIdx);
+    curbGeo.computeVertexNormals();
+    const curbMesh = new THREE.Mesh(
+      curbGeo,
+      matOwn(0xffffff, {
+        vertexColors: true,
+        side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      }),
+    );
+    curbMesh.position.y = 0.014;
+    curbMesh.receiveShadow = true;
+    this.root.add(curbMesh);
+    this.pathCurb = curbMesh;
 
     this.decorateAlongPaths(state, cells, lo, hi, blocked);
   }
