@@ -38,6 +38,7 @@ import { advance, rewardMult, tick } from '../src/core/simulation';
 import { createInitialState } from '../src/core/state';
 import { deliverWish } from '../src/core/wishes';
 import { switchIsland } from '../src/core/island';
+import { build } from '../src/core/actions';
 import { CROP_ORDER } from '../src/data/crops';
 import { BUILDING_ORDER } from '../src/data/buildings';
 import { FACTORY_ORDER, PRODUCTS } from '../src/data/factories';
@@ -551,6 +552,27 @@ section('装饰图鉴');
   const after = prosperityOf(d);
   check('集齐后繁荣度提升', after > before, `${after} vs ${before}`);
   check('提升 8%', after === Math.round(before * 1.08), `${after} vs ${Math.round(before * 1.08)}`);
+}
+
+section('建筑可建造性');
+{
+  const town = createInitialState('buildable-test');
+  town.level = 60;
+  town.coins = 1e9;
+  // 先切岛再加房子：switchIsland 会把当前建筑整批挪到另一座岛
+  switchIsland(town, 'square');
+  // 人口要够（最高 reqPop 110 → 22 栋小屋）
+  for (let i = 0; i < 22; i++) {
+    town.buildings.push({ id: `bh${i}`, type: 'house', seed: i, level: 1 } as never);
+  }
+  const failed: string[] = [];
+  for (const type of BUILDING_ORDER) {
+    if (type === 'road') continue;
+    const r = build(town, type, Date.now());
+    if (!r.ok) failed.push(`${type}:${r.reason}`);
+  }
+  check('所有建筑都能实际建造', failed.length === 0, failed.join(' | '));
+  check('建造后建筑数增加', town.buildings.length > 22, String(town.buildings.length));
 }
 
 console.log(`\n${pass} 通过，${fail} 失败\n`);
