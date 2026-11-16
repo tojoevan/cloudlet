@@ -14,6 +14,7 @@ import type { GameState, ItemId } from '../core/types';
 import { itemColor } from '../data/items';
 import { el, fmt, fmtMMSS, icon, type IconName, swatch } from './dom';
 import { activeFestival } from '../core/festival';
+import { satisfactionOf, satisfactionLabel } from '../core/satisfaction';
 
 interface Chip {
   root: HTMLElement;
@@ -46,6 +47,8 @@ export class HUD {
   private tier = makeChip('tier', 'tier clickable');
   /** 节日徽章：活动期间才出现 */
   private festival = el('div', 'chip festival');
+  /** 满意度：居民过得开不开心 */
+  private joy = makeChip('joy', 'joy');
 
   constructor(onCodex: () => void, onAch: () => void, onInv: () => void) {
     this.el.append(
@@ -58,6 +61,7 @@ export class HUD {
       this.ach.root,
       this.tier.root,
       this.festival,
+      this.joy.root,
     );
     this.festival.style.display = 'none';
     this.fever.style.display = 'none';
@@ -69,6 +73,11 @@ export class HUD {
   update(state: GameState, now: number, memberTier = 1): void {
     this.lv.text.textContent = `Lv ${state.level}`;
     this.lv.sub.textContent = `${state.exp}/${expForLevel(state.level)}`;
+
+    const sat = satisfactionOf(state);
+    this.joy.text.textContent = String(sat);
+    this.joy.sub.textContent = satisfactionLabel(sat);
+    this.joy.root.classList.toggle('good', sat >= 60);
 
     // 节日徽章：有活动才显示，颜色用活动主题色
     const fest = activeFestival();

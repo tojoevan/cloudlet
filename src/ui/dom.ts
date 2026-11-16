@@ -110,9 +110,12 @@ export function swatch(color: number): HTMLElement {
 }
 
 /** 资源条/徽章用的 16×16 内联 SVG 图标，靠 currentColor 着色，颜色由 CSS 决定 */
-export type IconName = 'level' | 'coin' | 'prosper' | 'store' | 'codex' | 'ach' | 'tier';
+export type IconName = 'level' | 'coin' | 'prosper' | 'store' | 'codex' | 'ach' | 'tier' | 'joy';
 
 const ICON_PATHS: Record<IconName, string> = {
+  // 笑脸（居民满意度）
+  joy:
+    '<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="5.8" cy="6.6" r="0.9" fill="currentColor"/><circle cx="10.2" cy="6.6" r="0.9" fill="currentColor"/><path d="M5.2 9.6c.9 1.2 1.9 1.8 2.8 1.8s1.9-.6 2.8-1.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
   // 星徽（等级）
   level:
     '<path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.3 4.2 13.6l.7-4.3-3.1-3 4.3-.6z" fill="currentColor"/>',

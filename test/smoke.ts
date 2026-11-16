@@ -45,6 +45,7 @@ import { ACHIEVEMENTS } from '../src/core/achievements';
 import { codexTotal } from '../src/core/codex';
 import { seasonOf, SEASONS, setSeasonOverride, decoAvailableIn, seasonGrassTint } from '../src/core/season';
 import { festivalOf, FESTIVALS } from '../src/core/festival';
+import { satisfactionOf, satisfactionBonus } from '../src/core/satisfaction';
 import type { GameState } from '../src/core/types';
 import { setNightOverride, dayNightIncome } from '../src/core/daynight';
 
@@ -487,6 +488,23 @@ section('节日活动');
   check('1/3 仍在雪灯节（跨年）', festivalOf(new Date(2026, 0, 3))?.id === 'snowlight');
   check('6/1 没有节日', festivalOf(new Date(2026, 5, 1)) === null);
   check('每个节日都有加成', FESTIVALS.every((f) => (f.crop ?? 1) > 1 || (f.income ?? 1) > 1 || (f.order ?? 1) > 1));
+}
+
+section('居民满意度');
+{
+  const j = createInitialState('joy-test');
+  const base = satisfactionOf(j);
+  for (let i = 0; i < 10; i++) {
+    j.buildings.push({ id: `dp${i}`, type: 'planter', seed: i, level: 1 } as never);
+  }
+  const withDeco = satisfactionOf(j);
+  check('装饰提升满意度', withDeco > base, `${withDeco} vs ${base}`);
+  j.buildings.push({ id: 'pk1', type: 'park', seed: 1, level: 1 } as never);
+  check('公共设施继续提升', satisfactionOf(j) > withDeco, `${satisfactionOf(j)} vs ${withDeco}`);
+  check('满意度不超过 100', satisfactionOf(j) <= 100, String(satisfactionOf(j)));
+  check('订单加成落在 1~1.2 之间', satisfactionBonus(j) > 1 && satisfactionBonus(j) <= 1.2, String(satisfactionBonus(j)));
+  j.stats.wishesDone = 50;
+  check('满足心愿也计入', satisfactionOf(j) > withDeco);
 }
 
 console.log(`\n${pass} 通过，${fail} 失败\n`);

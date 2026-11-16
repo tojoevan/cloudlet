@@ -245,6 +245,10 @@ button {
   font-weight: 400;
 }
 
+.chip.joy.good .ic {
+  color: var(--c-green);
+}
+
 .chip.festival {
   color: #fff;
   font-weight: 700;
