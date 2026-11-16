@@ -12,7 +12,11 @@ export type BuildingType =
   | 'garden'
   | 'flower'
   | 'school'
-  | 'hall';
+  | 'hall'
+  | 'bench'
+  | 'lamp'
+  | 'planter'
+  | 'statue';
 /** 岛屿形状：圆岛（极坐标布局）与方岛（网格布局）。以后可扩展更多空岛形态 */
 export type IslandShape = 'round' | 'square';
 export type RecipeId = `${FactoryType}:${string}`;

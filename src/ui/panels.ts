@@ -5,7 +5,7 @@ import { prosperityOf } from '../core/economy';
 import { ISLAND_BONUS } from '../core/islandBonus';
 import { FOCUS_PRESETS, focusRemainMs, isFocusing } from '../core/focus';
 import type { BuildingType, CropId, FactoryType, GameState, ItemId, Settings } from '../core/types';
-import { BUILDINGS, BUILDING_ORDER } from '../data/buildings';
+import { BUILDINGS, BUILDING_ORDER, DECO_TYPES } from '../data/buildings';
 import { BUILDING_MAX_LEVEL, upgradeCost } from '../core/actions';
 import { CROPS, CROP_ORDER } from '../data/crops';
 import { FACTORIES, FACTORY_ORDER, PRODUCTS, recipesOf } from '../data/factories';
@@ -224,13 +224,16 @@ export function openBuildPanel(
 
   body.appendChild(el('p', 'hint', '社区建筑'));
   const grid = el('div', 'grid');
+  // 装饰单独一组：它们是"把镇子摆好看"的入口，不该和功能建筑混在一起
+  const decoGrid = el('div', 'grid');
+  const decoSet = new Set<string>(DECO_TYPES);
   for (const t of BUILDING_ORDER) {
     const def = BUILDINGS[t];
     const owned = state.buildings.filter((b) => b.type === t).length;
     const cost = Math.floor(def.cost * Math.pow(def.costGrowth, owned));
     const locked = def.unlockLevel > state.level;
     const needPop = pop < def.reqPop;
-    grid.appendChild(
+    (decoSet.has(t) ? decoGrid : grid).appendChild(
       card({
         color: def.roof,
         name: def.name,
@@ -248,6 +251,10 @@ export function openBuildPanel(
     );
   }
   body.appendChild(grid);
+  if (decoGrid.childElementCount > 0) {
+    body.appendChild(el('p', 'hint', '装饰 · 提升繁荣度，也把镇子摆好看'));
+    body.appendChild(decoGrid);
+  }
 
   // 升级已有建筑：就地升等级，人口/繁荣放大但不新增占地，比新建更省空间
   const upgradable = BUILDING_ORDER.filter(

@@ -6,7 +6,7 @@ import type { BuildingType, FactoryType } from '../../core/types';
 import { mat, matOwn } from '../mat';
 import { getPalette, getHouses } from '../palette';
 import { bakeStatic } from '../bake';
-import { makeFlowerBed, makeMailbox } from './props';
+import { makeFlowerBed, makeLamp, makeMailbox, makePlanter } from './props';
 import { mulberry32, range } from '../rng';
 import { makeTree } from './terrain';
 
@@ -438,6 +438,55 @@ export function makeBuilding(
     g.scale.setScalar(1 + (level - 1) * 0.12);
     return { group: g, lights: [] };
   }
+  // 纯装饰：直接复用街道道具的造型，缩放交给 fitToCell
+  if (type === 'bench' || type === 'lamp' || type === 'planter' || type === 'statue') {
+    const g = new THREE.Group();
+    const lights: THREE.MeshStandardMaterial[] = [];
+    if (type === 'bench') {
+      g.add(makeParkBench(seed));
+    } else if (type === 'lamp') {
+      const lamp = makeLamp();
+      g.add(lamp);
+      // 路灯玻璃要交给昼夜系统
+      lamp.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.name === 'lampGlass' && m.material) {
+          lights.push(m.material as THREE.MeshStandardMaterial);
+        }
+      });
+    } else if (type === 'planter') {
+      g.add(makePlanter(seed));
+    } else {
+      // 雕像：石台 + 立柱 + 金色人像，是镇子里的精神地标
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.16, 8), mat(def.roof));
+      base.position.y = 0.08;
+      base.receiveShadow = true;
+      g.add(base);
+      const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.34, 0.42), mat(def.body));
+      plinth.position.y = 0.33;
+      plinth.castShadow = true;
+      g.add(plinth);
+      const body2 = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.5, 7), mat(def.accent));
+      body2.position.y = 0.75;
+      body2.castShadow = true;
+      g.add(body2);
+      const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.1, 0), mat(def.accent));
+      head.position.y = 1.06;
+      g.add(head);
+      const wingL = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.26, 4), mat(def.body));
+      wingL.position.set(-0.16, 0.82, 0);
+      wingL.rotation.z = 0.5;
+      g.add(wingL);
+      const wingR = wingL.clone();
+      wingR.position.x = 0.16;
+      wingR.rotation.z = -0.5;
+      g.add(wingR);
+    }
+    if (fit) fitToCell(g, w, h);
+    g.userData.lights = lights;
+    return { group: g, lights };
+  }
+
   // 新增的市政/商业建筑：各有独立的构图，不再复用民宅外形
   if (type === 'post' || type === 'flower' || type === 'garden' || type === 'school' || type === 'hall') {
     const custom = makeTownBuilding(type, seed, level);

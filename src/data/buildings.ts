@@ -10,6 +10,8 @@ export interface BuildingDef {
   prosperity: number;
   /** 建造所需人口 */
   reqPop: number;
+  /** 纯装饰（不计入功能建筑分组） */
+  deco?: boolean;
   unlockLevel: number;
   body: number;
   roof: number;
@@ -72,6 +74,30 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     body: 0xf7e9c8, roof: 0xd9714f, accent: 0x9fd8ea,
     desc: '钟声一响，小镇就热闹起来',
   },
+  bench: {
+    id: 'bench', name: '长椅', cost: 120, costGrowth: 1.08,
+    pop: 0, prosperity: 1, reqPop: 0, unlockLevel: 2, deco: true,
+    body: 0xd9a86c, roof: 0x9c7443, accent: 0xf7f2e6,
+    desc: '走累了就能坐一会儿',
+  },
+  lamp: {
+    id: 'lamp', name: '路灯', cost: 100, costGrowth: 1.08,
+    pop: 0, prosperity: 1, reqPop: 0, unlockLevel: 3, deco: true,
+    body: 0x6b7d8f, roof: 0x5b6b7b, accent: 0xffd98a,
+    desc: '夜里会亮起来',
+  },
+  planter: {
+    id: 'planter', name: '花箱', cost: 80, costGrowth: 1.06,
+    pop: 0, prosperity: 2, reqPop: 0, unlockLevel: 4, deco: true,
+    body: 0xc99a63, roof: 0xb58a63, accent: 0xf0687a,
+    desc: '沿街摆一排，镇子立刻有颜色',
+  },
+  statue: {
+    id: 'statue', name: '雕像', cost: 1_500, costGrowth: 1.15,
+    pop: 0, prosperity: 6, reqPop: 0, unlockLevel: 12, deco: true,
+    body: 0xe8e4d8, roof: 0xcdd9e2, accent: 0xd9b45a,
+    desc: '镇子的精神地标',
+  },
   hall: {
     id: 'hall', name: '市政厅', cost: 40_000, costGrowth: 1.26,
     pop: 0, prosperity: 22, reqPop: 110, unlockLevel: 20,
@@ -81,8 +107,13 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
 };
 
 export const BUILDING_ORDER: BuildingType[] = [
-  'house', 'cafe', 'park', 'fountain', 'post', 'garden', 'flower', 'school', 'hall', 'road',
+  'house', 'cafe', 'park', 'fountain', 'post', 'garden', 'flower', 'school', 'hall',
+  'bench', 'lamp', 'planter', 'statue',
+  'road',
 ];
+
+/** 纯装饰：建造面板里单独分组，避免和功能建筑混在一起 */
+export const DECO_TYPES: BuildingType[] = ['bench', 'lamp', 'planter', 'statue'];
 
 /** 方岛网格占地（单位：格）。住宅基础 1×1，可升级成 1×2 / 2×1；
  *  咖啡馆/公园/喷泉为 2×2 的点缀型；道路 1×1 可拼接。 */
@@ -96,6 +127,10 @@ export const BUILDING_FOOTPRINT: Record<BuildingType, { w: number; h: number }> 
   flower: { w: 1, h: 1 },
   school: { w: 2, h: 2 },
   hall: { w: 2, h: 2 },
+  bench: { w: 1, h: 1 },
+  lamp: { w: 1, h: 1 },
+  planter: { w: 1, h: 1 },
+  statue: { w: 1, h: 1 },
   road: { w: 1, h: 1 },
 };
 
