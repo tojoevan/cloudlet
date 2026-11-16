@@ -10,7 +10,7 @@ import * as THREE from 'three';
  * 做法：一个 3 万级实例的 InstancedMesh（1 次绘制），每株草是两片交叉的窄叶，
  * 顶点色做「根深梢浅」，并按世界坐标抖动色相，避免整片同色。
  */
-const BLADE_H = 0.3;
+const BLADE_H = 0.16;
 const BLADE_W = 0.06;
 
 function bladeGeometry(): THREE.BufferGeometry {

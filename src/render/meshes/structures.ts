@@ -69,6 +69,16 @@ export function makeHouse(
   const winMat = matOwn(p.accent);
   lights.push(winMat);
 
+  // 石基座：房子不再"直接长在草里"，而是坐在一小圈石头上。
+  // 这是让建筑看起来「有重量」最便宜的一笔。
+  const plinth = new THREE.Mesh(
+    new THREE.BoxGeometry(w + 0.12, 0.16, d + 0.12),
+    mat(getPalette().rockDark),
+  );
+  plinth.position.y = 0.08;
+  plinth.receiveShadow = true;
+  g.add(plinth);
+
   for (let f = 0; f < floors; f++) {
     const baseY = f * floorH;
 
@@ -92,6 +102,13 @@ export function makeHouse(
     const winCount = rng() > 0.5 ? 2 : 1;
     for (let i = 0; i < winCount; i++) {
       const wx = (i - (winCount - 1) / 2) * 0.42;
+      // 窗框：比窗略大的浅色方块垫在后面，窗就有了"框"
+      const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(0.24, 0.26, 0.045),
+        mat(new THREE.Color(p.body).lerp(new THREE.Color(0xffffff), 0.5).getHex()),
+      );
+      frame.position.set(wx, winY, d / 2 + 0.012);
+      g.add(frame);
       const win = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.22, 0.06), winMat);
       win.position.set(wx, winY, d / 2 + 0.02);
       win.userData.noBake = true; // 窗户要单独做昼夜发光
@@ -207,11 +224,25 @@ export function makeHouse(
     g.add(dWin);
   }
 
+  // 屋顶尖饰：四个坡顶交汇处一个小球，剪影不再"一刀切"结束
+  if (style !== 'town') {
+    const finial = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.055, 0),
+      mat(new THREE.Color(p.roof).lerp(new THREE.Color(0xffffff), 0.25).getHex()),
+    );
+    finial.position.y = topY + rh + 0.02;
+    g.add(finial);
+  }
+
   // 烟囱在顶层（平顶联排不摆烟囱，避免和女儿墙打架）
   if (style !== 'town' && rng() > 0.4) {
     const ch = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.42, 0.16), mat(getPalette().rockDark));
     ch.position.set(w * 0.26, topY + rh * 0.55, -d * 0.2);
     g.add(ch);
+    // 烟囱帽：顶端一小圈檐，细节到位，也挡住"方管子"的断面
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.04, 0.22), mat(getPalette().rock));
+    cap.position.set(w * 0.26, topY + rh * 0.55 + 0.22, -d * 0.2);
+    g.add(cap);
   }
 
   // 墙体/屋顶/窗台等静止件合并成 1 个网格，窗户保持独立
