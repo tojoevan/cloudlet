@@ -40,6 +40,7 @@ import {
   makeTree,
 } from './meshes/terrain';
 import { ISLAND_RADIUS, getPalette } from './palette';
+import { seasonGrassTint } from '../core/season';
 import { matOwn } from './mat';
 import { mulberry32, range } from './rng';
 import { isRipe, plotProgress } from '../core/simulation';
@@ -347,7 +348,7 @@ export class World {
     }
     const round = this.islandShape !== 'square';
     const size = round ? this.islandRadius * 0.995 : 8.26;
-    const geo = makeGroundOverlay(this.islandShape, size, 2.58, round ? 46 : 40);
+    const geo = makeGroundOverlay(this.islandShape, size, 2.58, round ? 46 : 40, seasonGrassTint(getPalette().grass));
     const mesh = new THREE.Mesh(
       geo,
       // 材质色必须是白色：vertexColors 是与材质色相乘的，

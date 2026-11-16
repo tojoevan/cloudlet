@@ -80,3 +80,30 @@ export function decoAvailableIn(type: string, season: SeasonId): boolean {
   if (!seasonal.includes(type)) return true;
   return SEASONAL_DECO[season] === type;
 }
+
+/** 整数色混合（core 层不依赖 three） */
+function mixHex(a: number, b: number, t: number): number {
+  const ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
+  const br = (b >> 16) & 0xff, bg = (b >> 8) & 0xff, bb = b & 0xff;
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const bl = Math.round(ab + (bb - ab) * t);
+  return (r << 16) | (g << 8) | bl;
+}
+
+/**
+ * 季节对草地色的偏移：春天新绿、夏天更浓、秋天转暖黄、冬天覆一层冷白。
+ * 这是"季节真的来了"最直观的证据——比换一套装饰更省事，也更整体。
+ */
+export function seasonGrassTint(base: number): number {
+  switch (currentSeason().id) {
+    case 'summer':
+      return mixHex(base, 0x8cc46a, 0.22);
+    case 'autumn':
+      return mixHex(base, 0xd9b46c, 0.2);
+    case 'winter':
+      return mixHex(base, 0xdfe9f0, 0.42);
+    default:
+      return mixHex(base, 0xa6dd8c, 0.08);
+  }
+}

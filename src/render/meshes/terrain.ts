@@ -3,6 +3,7 @@ import { mat, matOwn, matVC, tintGradient } from '../mat';
 import { bakeStatic } from '../bake';
 import { ISLAND_RADIUS, getPalette } from '../palette';
 import { CELL, SQUARE_N } from '../../core/island';
+import { seasonGrassTint } from '../../core/season';
 import type { IslandShape } from '../../core/types';
 import { mulberry32, pick, range } from '../rng';
 
@@ -168,7 +169,7 @@ export function makeSquareIsland(seed = 20260829, half = 8.27, corner = 2.6): TH
   tintByPosition(squareTopGeo);
   const top = new THREE.Mesh(
     squareTopGeo,
-    matOwn(getPalette().grass, { vertexColors: true }),
+    matOwn(seasonGrassTint(getPalette().grass), { vertexColors: true }),
   );
   top.receiveShadow = true;
   g.add(top);

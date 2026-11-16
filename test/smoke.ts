@@ -43,7 +43,7 @@ import { BUILDING_ORDER } from '../src/data/buildings';
 import { FACTORY_ORDER, PRODUCTS } from '../src/data/factories';
 import { ACHIEVEMENTS } from '../src/core/achievements';
 import { codexTotal } from '../src/core/codex';
-import { seasonOf, SEASONS, setSeasonOverride, decoAvailableIn } from '../src/core/season';
+import { seasonOf, SEASONS, setSeasonOverride, decoAvailableIn, seasonGrassTint } from '../src/core/season';
 import type { GameState } from '../src/core/types';
 import { setNightOverride, dayNightIncome } from '../src/core/daynight';
 
@@ -451,6 +451,13 @@ section('季节');
   check('每季都有专属装饰与加成作物', allHaveDeco);
   check('稻草人只在秋天可建', decoAvailableIn('scarecrow', 'autumn') && !decoAvailableIn('scarecrow', 'spring'));
   check('普通装饰常年可建', decoAvailableIn('bench', 'spring') && decoAvailableIn('bench', 'winter'));
+  setSeasonOverride('summer');
+  const summer = seasonGrassTint(0xa8d98b);
+  setSeasonOverride('winter');
+  const winter = seasonGrassTint(0xa8d98b);
+  setSeasonOverride(null);
+  check('不同季节草地色不同', summer !== winter);
+  check('冬天更冷（蓝分量更高）', (winter & 0xff) > (summer & 0xff), `${winter & 0xff} vs ${summer & 0xff}`);
 }
 
 section('昼夜耦合');

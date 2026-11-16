@@ -35,6 +35,7 @@ import { autoFocusStep } from './core/autoplay';
 import { deliver } from './core/orders';
 import { deliverWish } from './core/wishes';
 import { ISLAND_BONUS } from './core/islandBonus';
+import { currentSeason, setSeasonOverride } from './core/season';
 import { clearLocal, exportCode, exportSaveFile, getDeviceId, importCode, loadLocal, saveLocal } from './core/save';
 import { canPlace } from './core/grid';
 import { advance, tick } from './core/simulation';
@@ -1194,6 +1195,8 @@ function syncTimeOfDay(): void {
 }
 syncTimeOfDay();
 setInterval(syncTimeOfDay, 60_000);
+// 季节决定环境音的构成（春天鸟多、夏天虫多、冬天风大）
+audio.setSeason(currentSeason().id);
 
 // ---------- 天气 ----------
 // 自动轮换：晴天为主，偶尔下雨/下雪/落樱。玩家不用管，它自己变——
@@ -1226,6 +1229,14 @@ setInterval(() => {
   if (next === weatherNow) return;
   applyWeather(next, true);
 }, 4 * 60_000);
+
+// ?season=spring|summer|autumn|winter 预览季节效果（调试/截图用）
+{
+  const raw = new URLSearchParams(location.search).get('season');
+  if (raw === 'spring' || raw === 'summer' || raw === 'autumn' || raw === 'winter') {
+    setSeasonOverride(raw);
+  }
+}
 
 // ?panel=codex|ach|build 直接打开对应面板（调试/截图用）
 {

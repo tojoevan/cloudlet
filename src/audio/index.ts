@@ -121,6 +121,11 @@ export class AudioManager {
     if (this.master) this.master.gain.value = this.ducking ? this.volume * 0.55 : this.volume;
   }
 
+  /** 季节微调环境音（鸟/虫/风） */
+  setSeason(season: string): void {
+    this.ambient?.setSeason(season);
+  }
+
   /** 昼夜切换：白天鸟鸣、夜里虫鸣 */
   setDayNight(day: boolean): void {
     this.ambient?.setDay(day);

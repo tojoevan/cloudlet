@@ -16,6 +16,10 @@ export class AmbientEngine {
   private rain: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
   private day = true;
   private rainLevel = 0;
+  /** 季节微调：春天鸟多、夏天虫多、秋冬风更响 */
+  private birdMul = 1;
+  private cricketMul = 1;
+  private windMul = 1;
   private running = false;
 
   constructor(
@@ -36,6 +40,26 @@ export class AmbientEngine {
     this.rain?.src.stop();
     this.wind = null;
     this.rain = null;
+  }
+
+  /** 季节微调环境音：鸟/虫/风的密度与强度 */
+  setSeason(season: string): void {
+    switch (season) {
+      case 'spring':
+        this.birdMul = 1.6; this.cricketMul = 0.6; this.windMul = 0.9;
+        break;
+      case 'summer':
+        this.birdMul = 1.1; this.cricketMul = 1.8; this.windMul = 0.8;
+        break;
+      case 'autumn':
+        this.birdMul = 0.9; this.cricketMul = 1.0; this.windMul = 1.3;
+        break;
+      case 'winter':
+        this.birdMul = 0.35; this.cricketMul = 0.15; this.windMul = 1.6;
+        break;
+      default:
+        this.birdMul = 1; this.cricketMul = 1; this.windMul = 1;
+    }
   }
 
   /** 白天/夜晚切换：鸟鸣与虫鸣此消彼长 */
@@ -60,21 +84,21 @@ export class AmbientEngine {
     // 风：缓慢起伏，像有呼吸
     if (this.wind) {
       const t = this.ctx.currentTime;
-      const lvl = 0.035 + Math.sin(t * 0.13) * 0.018 + Math.sin(t * 0.37) * 0.008;
+      const lvl = (0.035 + Math.sin(t * 0.13) * 0.018 + Math.sin(t * 0.37) * 0.008) * this.windMul;
       this.wind.gain.gain.setTargetAtTime(Math.max(0.01, lvl), t, 0.8);
     }
 
     // 鸟鸣：白天随机，成串的短促滑音
     this.birdTimer -= dt;
     if (this.birdTimer <= 0) {
-      this.birdTimer = (this.day ? 2.6 : 7.5) + Math.random() * (this.day ? 4.5 : 6);
+      this.birdTimer = ((this.day ? 2.6 : 7.5) + Math.random() * (this.day ? 4.5 : 6)) / this.birdMul;
       if (this.day && Math.random() > 0.15) this.chirp();
     }
 
     // 虫鸣：夜里随机，高频短脉冲
     this.cricketTimer -= dt;
     if (this.cricketTimer <= 0) {
-      this.cricketTimer = (this.day ? 6 : 1.6) + Math.random() * (this.day ? 6 : 2.6);
+      this.cricketTimer = ((this.day ? 6 : 1.6) + Math.random() * (this.day ? 6 : 2.6)) / this.cricketMul;
       if (!this.day) this.cricket();
     }
   }
