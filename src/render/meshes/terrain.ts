@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mat, matOwn, matVC, tintGradient } from '../mat';
 import { bakeStatic } from '../bake';
+import { soilMaterial } from './soil';
 import { ISLAND_RADIUS, getPalette } from '../palette';
 import { CELL, SQUARE_N } from '../../core/island';
 import { seasonGrassTint } from '../../core/season';
@@ -548,7 +549,8 @@ export function makePlot(plotId: number, size = 0.92): THREE.Mesh {
   const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.14, bevelEnabled: false });
   geo.rotateX(-Math.PI / 2); // 厚度从 +Z 转到 +Y，地块平铺在草地上
   geo.translate(0, -0.07, 0); // 让地块一半埋进草面，与原方块一致
-  const tile = new THREE.Mesh(geo, mat(getPalette().tilled));
+  // 土壤贴图：底色已在材质里，这里给的是垄沟与土块细节
+  const tile = new THREE.Mesh(geo, soilMaterial());
   tile.userData.plotId = plotId;
   tile.receiveShadow = true;
   return tile;
