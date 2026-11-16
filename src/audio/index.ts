@@ -1,6 +1,7 @@
 import type { AudioChannel } from '../core/types';
 import { bell, fmKeys, mtof } from './dsp';
 import { createMusicBus, MusicChannel, MusicEngine } from './music';
+import { AmbientEngine } from './ambient';
 
 export type SfxKind = 'plant' | 'harvest' | 'coin' | 'deliver' | 'levelup' | 'fever' | 'click' | 'error';
 
@@ -13,6 +14,8 @@ export class AudioManager {
   private master: GainNode | null = null;
   private sfxBus: GainNode | null = null;
   private music: MusicEngine | null = null;
+  /** 环境音层：鸟/虫/风/雨，独立于 BGM 频道 */
+  private ambient: AmbientEngine | null = null;
   private radio: HTMLAudioElement | null = null;
 
   private channel: AudioChannel = 'citypop';
@@ -45,6 +48,14 @@ export class AudioManager {
     this.master = master;
     this.sfxBus = sfxBus;
     this.music = new MusicEngine(ctx, bus);
+
+    // 环境音走独立总线，音量固定偏低，始终垫在 BGM 之下
+    const ambientBus = ctx.createGain();
+    ambientBus.gain.value = 0.55;
+    ambientBus.connect(master);
+    this.ambient = new AmbientEngine(ctx, ambientBus);
+    this.ambient.start();
+
     this.ready = true;
 
     this.applyChannel();
@@ -108,6 +119,21 @@ export class AudioManager {
 
   private applyGain(): void {
     if (this.master) this.master.gain.value = this.ducking ? this.volume * 0.55 : this.volume;
+  }
+
+  /** 昼夜切换：白天鸟鸣、夜里虫鸣 */
+  setDayNight(day: boolean): void {
+    this.ambient?.setDay(day);
+  }
+
+  /** 天气：0~1 的雨声强度 */
+  setRain(level: number): void {
+    this.ambient?.setRain(level);
+  }
+
+  /** 主循环每帧调用（秒），推进环境音的随机事件 */
+  updateAmbient(dt: number): void {
+    this.ambient?.update(dt);
   }
 
   /** Fever 时把音乐推起来 */

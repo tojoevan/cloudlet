@@ -38,12 +38,20 @@ function rollLines(items: ItemId[]): OrderLine[] {
   return lines;
 }
 
+/** 挑一个当前订单里还没出现过的居民，避免三张卡全是同一个人 */
+function pickVillager(state: GameState): string {
+  const used = new Set(state.orders.map((o) => o.villager).filter(Boolean));
+  const pool = VILLAGERS.filter((v) => !used.has(v));
+  const list = pool.length > 0 ? pool : VILLAGERS;
+  return list[Math.floor(Math.random() * list.length)];
+}
+
 export function makeOrder(state: GameState, now: number): Order {
   const items = availableItems(state);
   const lines = rollLines(items);
   const goods = lines.reduce((s, l) => s + itemPrice(l.id) * l.count, 0);
   const mult = 1.8 + Math.random() * 0.7;
-  const villager = VILLAGERS[Math.floor(Math.random() * VILLAGERS.length)];
+  const villager = pickVillager(state);
   return {
     id: `o_${now.toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
     lines,

@@ -1082,10 +1082,49 @@ function syncTimeOfDay(): void {
   if (n !== nightNow) {
     nightNow = n;
     world.applyTimeOfDay(n);
+    audio.setDayNight(!n);
   }
 }
 syncTimeOfDay();
 setInterval(syncTimeOfDay, 60_000);
+
+// ---------- 天气 ----------
+// 自动轮换：晴天为主，偶尔下雨/下雪/落樱。玩家不用管，它自己变——
+// 这是"世界活着"的廉价来源，也让长时间挂机不至于一直同一张图。
+type WeatherKind = 'clear' | 'rain' | 'snow' | 'sakura';
+const WEATHER_NAMES: Record<WeatherKind, string> = {
+  clear: '放晴了',
+  rain: '下起了小雨',
+  snow: '飘起了雪',
+  sakura: '樱花瓣在飘',
+};
+function pickWeather(): WeatherKind {
+  const r = Math.random();
+  if (r < 0.52) return 'clear';
+  if (r < 0.72) return 'sakura';
+  if (r < 0.89) return 'rain';
+  return 'snow';
+}
+let weatherNow: WeatherKind = 'clear';
+function applyWeather(kind: WeatherKind, announce: boolean): void {
+  weatherNow = kind;
+  view.setWeather(kind);
+  audio.setRain(kind === 'rain' ? 1 : 0);
+  if (announce) toast(WEATHER_NAMES[kind]);
+}
+setInterval(() => {
+  const next = pickWeather();
+  if (next === weatherNow) return;
+  applyWeather(next, true);
+}, 4 * 60_000);
+
+// ?weather=rain|snow|sakura|clear 可指定天气（调试/预览用，不影响存档）
+{
+  const raw = new URLSearchParams(location.search).get('weather');
+  if (raw === 'rain' || raw === 'snow' || raw === 'sakura' || raw === 'clear') {
+    applyWeather(raw, false);
+  }
+}
 
 function isNight(): boolean {
   const h = new Date().getHours();
@@ -1222,6 +1261,7 @@ function frame(t: number): void {
     dirty = false;
   }
   world.update(state, now, dt, lowSpec);
+  audio.updateAmbient(dt);
   view.update(dt);
 
   const fever = now < state.feverUntil;

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { getPalette, getScheme } from './palette';
 import { createBackdrop, type Backdrop } from './backdrop';
+import { Weather, type WeatherKind } from './weather';
 
 /**
  * 从天空基色派生渐变用的上/下两色：
@@ -148,6 +149,9 @@ export class SceneView {
   private tiltOn = true;
   /** 远景背板（远山 + 云海），不随换岛重建 */
   private backdrop!: Backdrop;
+  private weather = new Weather();
+  /** 当前天气会影响光照：雨天压暗、整体偏冷 */
+  private weatherKind: WeatherKind = 'clear';
   private skyMat!: THREE.ShaderMaterial;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -218,6 +222,7 @@ export class SceneView {
     this.scene.fog = new THREE.Fog(0xffffff, 90, 170);
     this.backdrop = createBackdrop();
     this.scene.add(this.backdrop.group);
+    this.scene.add(this.weather.group);
     this.setupPost();
 
     this.setSky(false);
@@ -241,6 +246,21 @@ export class SceneView {
     const bottom = night ? new THREE.Color(0x18213f) : skyBottom(p.sky, false);
     const top = night ? new THREE.Color(0x0a1026) : skyTop(p.sky, false);
     const glow = bottom.clone().lerp(new THREE.Color(0xffffff), night ? 0.03 : 0.3);
+    // 天气改变天色：雨天压成灰蓝天，雪天偏冷白，樱花天留一点粉
+    const w = this.weatherKind;
+    if (w === 'rain') {
+      const gray = new THREE.Color(0x9aabbd);
+      bottom.lerp(gray, 0.62);
+      top.lerp(gray, 0.7);
+      glow.lerp(gray, 0.5);
+    } else if (w === 'snow') {
+      const cold = new THREE.Color(0xd3dee8);
+      bottom.lerp(cold, 0.4);
+      top.lerp(cold, 0.3);
+    } else if (w === 'sakura') {
+      const pink = new THREE.Color(0xf6d9e2);
+      bottom.lerp(pink, 0.16);
+    }
     if (this.skyMat) {
       this.skyMat.uniforms.uBottom.value.copy(bottom);
       this.skyMat.uniforms.uTop.value.copy(top);
@@ -406,8 +426,15 @@ export class SceneView {
       this.fill.color.set(0xffe6c4);
       this.fill.intensity = light.fill * hemi * 1.15;
     }
-    this.sun.intensity = light.sun * sun;
-    this.hemi.intensity = light.hemi * hemi;
+    // 天气对光照的修正：雨天压暗并偏冷，雪天略提亮，樱花天略加暖
+    const w = this.weatherKind;
+    const dim = w === 'rain' ? 0.66 : w === 'snow' ? 1.06 : w === 'sakura' ? 1.02 : 1;
+    this.sun.intensity = light.sun * sun * dim;
+    this.hemi.intensity = light.hemi * hemi * (w === 'rain' ? 1.08 : 1);
+    if (w === 'rain') {
+      this.hemi.color.lerp(new THREE.Color(0xb9c6d8), 0.55);
+      this.sun.color.lerp(new THREE.Color(0xcfd8e6), 0.5);
+    }
   }
 
   /** 按时段套用光色：算出昼夜后用 setSky 重构基础天穹，色温由 tintAndLights 叠加 */
@@ -472,8 +499,17 @@ export class SceneView {
    * 待机环绕：没人操作时镜头缓慢转圈，游戏变成一块动态壁纸。
    * 这正是「放在一旁陪伴」想要的形态。
    */
+  /** 切换天气（雨/雪/樱花/晴） */
+  setWeather(kind: WeatherKind): void {
+    this.weatherKind = kind;
+    this.weather.set(kind);
+    // 立刻重算一次光照，否则雨要等到下一分钟才「变天」
+    this.setSky(this.isNight);
+  }
+
   update(dt: number): void {
     this.backdrop?.update(dt);
+    this.weather.update(dt);
     this.easeYaw(dt);
     const now = performance.now();
     // 展示模式：进入即持续环绕，不被 30s 待机计时卡住
