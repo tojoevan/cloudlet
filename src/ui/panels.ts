@@ -824,21 +824,45 @@ export function openCodexPanel(state: GameState): void {
 
 export function openAchievementsPanel(state: GameState): void {
   const body = el('div');
-  const grid = el('div', 'grid');
+  const groups: { id: string; name: string }[] = [
+    { id: 'farm', name: '农事' },
+    { id: 'trade', name: '交易' },
+    { id: 'town', name: '小镇' },
+    { id: 'focus', name: '专注' },
+    { id: 'collect', name: '收集' },
+  ];
 
-  for (const a of ACHIEVEMENTS) {
-    const got = state.achievements.includes(a.id);
-    grid.appendChild(
-      card({
-        color: got ? 0xe9b824 : 0xb4b2a9,
-        name: got ? a.name : '未解锁',
-        meta: got ? `${a.desc} · +${a.coins} 金` : a.desc,
-        locked: !got,
-        onClick: () => closeModal(),
-      }),
-    );
+  for (const g of groups) {
+    const list = ACHIEVEMENTS.filter((a) => (a.group ?? 'town') === g.id);
+    if (list.length === 0) continue;
+    body.appendChild(el('p', 'hint', g.name));
+    const wrap = el('div', 'ach-list');
+    for (const a of list) {
+      const got = state.achievements.includes(a.id);
+      const row = el('div', `ach-row${got ? ' done' : ''}`.trim());
+      const head = el('div', 'ach-head');
+      head.appendChild(el('span', 'ach-name', a.name));
+      head.appendChild(el('span', 'ach-reward', got ? '已达成' : a.coins > 0 ? `+${a.coins} 金` : '里程碑'));
+      row.appendChild(head);
+      row.appendChild(el('div', 'ach-desc', a.desc));
+
+      // 进度条：一次性事件型（如首次触发）也给 0/1 的进度，视觉上更完整
+      const p = a.progress ? a.progress(state) : { cur: got ? 1 : 0, target: 1 };
+      const pct = Math.min(100, Math.round((p.cur / Math.max(1, p.target)) * 100));
+      const bar = el('div', 'ach-bar');
+      const fill = el('div', 'ach-fill');
+      fill.style.width = `${got ? 100 : pct}%`;
+      bar.appendChild(fill);
+      const meta = el('div', 'ach-meta');
+      meta.appendChild(el('span', undefined, `${Math.min(p.cur, p.target)} / ${p.target}`));
+      meta.appendChild(el('span', undefined, `${got ? 100 : pct}%`));
+      row.appendChild(bar);
+      row.appendChild(meta);
+      wrap.appendChild(row);
+    }
+    body.appendChild(wrap);
   }
-  body.appendChild(grid);
+
   body.appendChild(
     el('p', 'note', '成就只给一次性奖励，不提供持续加成——它负责给你回来的理由，不负责破坏平衡。'),
   );

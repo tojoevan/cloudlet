@@ -39,6 +39,7 @@ import { createInitialState } from '../src/core/state';
 import { deliverWish } from '../src/core/wishes';
 import { switchIsland } from '../src/core/island';
 import { CROP_ORDER } from '../src/data/crops';
+import { ACHIEVEMENTS } from '../src/core/achievements';
 import type { GameState } from '../src/core/types';
 
 let pass = 0;
@@ -407,6 +408,19 @@ section('收集奖励');
   const boosted = c.plots[1].readyAt - t;
   check('集齐作物后更快', boosted < normal, `${boosted} vs ${normal}`);
   check('约快 10%', Math.abs(boosted - Math.round(normal / 1.1)) <= 2, String(boosted));
+}
+
+section('成就目标墙');
+{
+  const a = createInitialState('ach-test');
+  check('成就都分了组', ACHIEVEMENTS.every((x) => !!x.group), '');
+  const bad = ACHIEVEMENTS.filter((x) => x.progress && x.progress(a).target <= 0);
+  check('进度目标都为正', bad.length === 0, bad.map((x) => x.id).join(','));
+  const first = ACHIEVEMENTS.find((x) => x.id === 'first_harvest')!;
+  const p0 = first.progress!(a);
+  check('新档进度从 0 开始', p0.cur === 0 && p0.target === 1, `${p0.cur}/${p0.target}`);
+  a.stats.harvests = 42;
+  check('进度随统计增长', first.progress!(a).cur === 42, String(first.progress!(a).cur));
 }
 
 console.log(`\n${pass} 通过，${fail} 失败\n`);

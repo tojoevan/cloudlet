@@ -1278,3 +1278,78 @@ button {
   0%, 100% { outline-color: rgba(224, 122, 95, 0.75); }
   50% { outline-color: rgba(224, 122, 95, 0.25); }
 }
+
+
+/* 弹窗打开时，左右悬浮面板退到背景里 */
+body.modal-open .wishes,
+body.modal-open .hud .orders {
+  opacity: 0.25;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+/* ---------- 成就目标墙 ---------- */
+.ach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.ach-row {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(43, 58, 85, 0.04);
+}
+.ach-row.done {
+  background: rgba(106, 153, 78, 0.12);
+}
+.ach-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ach-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--c-ink);
+}
+.ach-row.done .ach-name {
+  color: var(--c-green);
+}
+.ach-reward {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-gold);
+}
+.ach-row.done .ach-reward {
+  color: var(--c-green);
+}
+.ach-desc {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--c-muted);
+}
+.ach-bar {
+  margin-top: 8px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(43, 58, 85, 0.1);
+  overflow: hidden;
+}
+.ach-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #8fd0a0, #6a994e);
+  transition: width 0.35s ease;
+}
+.ach-row:not(.done) .ach-fill {
+  background: linear-gradient(90deg, #bcd6ef, #7fa9d0);
+}
+.ach-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--c-sub);
+}

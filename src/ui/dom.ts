@@ -69,6 +69,8 @@ export function floatAt(x: number, y: number, text: string, kind: '' | 'gold' | 
 
 export function openModal(title: string, hint: string, body: HTMLElement): void {
   closeModal();
+  // 弹窗打开时压暗左右悬浮面板：遮罩是半透明的，否则它们会从弹窗旁边透出来抢注意力
+  document.body.classList.add('modal-open');
   scrim = el('div', 'scrim');
   const modal = el('div', 'modal');
   modal.style.position = 'relative';
@@ -94,6 +96,7 @@ export function closeModal(): void {
     scrim.remove();
     scrim = null;
   }
+  document.body.classList.remove('modal-open');
 }
 
 export function isModalOpen(): boolean {
