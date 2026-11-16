@@ -46,6 +46,7 @@ import { codexTotal } from '../src/core/codex';
 import { seasonOf, SEASONS, setSeasonOverride, decoAvailableIn, seasonGrassTint } from '../src/core/season';
 import { festivalOf, FESTIVALS } from '../src/core/festival';
 import { satisfactionOf, satisfactionBonus } from '../src/core/satisfaction';
+import { accumulateSlowMs, shouldDowngrade, DOWNGRADE_AFTER_MS } from '../src/core/quality';
 import type { GameState } from '../src/core/types';
 import { setNightOverride, dayNightIncome } from '../src/core/daynight';
 
@@ -505,6 +506,30 @@ section('居民满意度');
   check('订单加成落在 1~1.2 之间', satisfactionBonus(j) > 1 && satisfactionBonus(j) <= 1.2, String(satisfactionBonus(j)));
   j.stats.wishesDone = 50;
   check('满足心愿也计入', satisfactionOf(j) > withDeco);
+}
+
+section('画质与设置');
+{
+  const q = createInitialState('quality-test');
+  check('新档默认自动画质开启', q.settings.autoQuality === true);
+  check('新档默认标准画质', q.settings.quality === 'standard');
+  // 老档缺字段时补齐
+  const legacy = JSON.parse(JSON.stringify(q));
+  delete legacy.settings.autoQuality;
+  // 走完整加载链路：migrate 只做版本迁移，normalize 才补默认值
+  localStorage.setItem('cloudlet.save', JSON.stringify(legacy));
+  const l = loadLocal();
+  check('老档补上自动画质字段', l?.settings.autoQuality === true);
+}
+
+section('自动画质判定');
+{
+  let acc = 0;
+  for (let i = 0; i < 60; i++) acc = accumulateSlowMs(acc, 16);
+  check('流畅时不会累积', acc === 0, String(acc));
+  for (let i = 0; i < 400; i++) acc = accumulateSlowMs(acc, 60);
+  check('持续掉帧会累积到阈值', shouldDowngrade(acc), String(acc));
+  check('阈值是 6 秒', DOWNGRADE_AFTER_MS === 6000);
 }
 
 console.log(`\n${pass} 通过，${fail} 失败\n`);

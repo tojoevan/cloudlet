@@ -37,6 +37,7 @@ import { deliverWish } from './core/wishes';
 import { ISLAND_BONUS } from './core/islandBonus';
 import { currentSeason, setSeasonOverride } from './core/season';
 import { setFestivalDate } from './core/festival';
+import { accumulateSlowMs, shouldDowngrade } from './core/quality';
 import { clearLocal, exportCode, exportSaveFile, getDeviceId, importCode, loadLocal, saveLocal } from './core/save';
 import { canPlace } from './core/grid';
 import { advance, tick } from './core/simulation';
@@ -1291,6 +1292,30 @@ window.addEventListener('wheel', bumpActivity, { passive: true });
 /** 自动经营步进的节流点：专注中每约 1 秒跑一次，别每秒 60 次空转 */
 let autoStepAt = 0;
 
+// ---------- 自动画质 ----------
+// 小学生与休闲玩家的设备往往不强，与其让他们自己去设置里找"低画质"，
+// 不如掉帧时自动降一档并告知。只降不升，避免来回抖动。
+// ?autoq=0 可临时关掉自动降档（截图/QA 用，避免 headless 低帧率触发）
+const autoQualityDisabled = new URLSearchParams(location.search).get('autoq') === '0';
+let lowFpsMs = 0;
+let autoQualityDone = false;
+function autoQualityTick(rawInterval: number): void {
+  if (autoQualityDone) return;
+  if (autoQualityDisabled || state.settings.autoQuality === false) return;
+  if (state.settings.quality === 'low') return;
+  if (document.visibilityState !== 'visible') return;
+  lowFpsMs = accumulateSlowMs(lowFpsMs, rawInterval);
+  if (!shouldDowngrade(lowFpsMs)) return;
+  autoQualityDone = true;
+  console.log('[autoq] 持续掉帧，切到流畅模式');
+  state.settings.quality = 'low';
+  view.setQuality('low');
+  view.setTilt(false);
+  view.setWeather('clear');
+  saveNow();
+  toast('检测到持续掉帧，已自动切换到流畅模式（可在设置里改回）');
+}
+
 // ---------- 性能监控浮层 ----------
 // 实时采样 FPS / 帧时间 / DrawCall / 三角面 / GPU 资源 / JS 堆；
 // 掉帧或卡顿尖刺时整块高亮告警，并节流向 console.warn，方便「持续关注性能异常」。
@@ -1473,6 +1498,7 @@ function frame(t: number): void {
   speech.update(view.camera, canvas, now);
   updatePlotTip(now); // 农田浮层：跟随镜头 + 实时倒计时
 
+  autoQualityTick(rawInterval);
   view.render();
   if (state.settings.perfMonitor) perfSample(rawInterval, view.perf);
   requestAnimationFrame(frame);

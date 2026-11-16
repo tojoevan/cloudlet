@@ -140,6 +140,8 @@ export interface Settings {
   powerSave: boolean;
   /** 画质档位：low=省电关阴影 / standard=默认 / high=2048 阴影（桌面强机） */
   quality: 'low' | 'standard' | 'high';
+  /** 自动画质：持续掉帧时自动降档，默认开启 */
+  autoQuality?: boolean;
   /** 色系：马卡龙/奶油水彩/果冻糖果/晨雾清新，对应 palette.ts 的 SCHEMES id */
   colorScheme: string;
   /**

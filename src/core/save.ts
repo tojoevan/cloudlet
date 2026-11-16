@@ -91,6 +91,7 @@ function normalize(s: GameState): GameState {
   s.settings.cloudSync ??= false;
   s.settings.powerSave ??= false;
   s.settings.quality ??= 'standard';
+  s.settings.autoQuality ??= true;
   s.settings.colorScheme ??= 'macaron';
   s.settings.channel ??= 'citypop';
   s.settings.volume ??= 0.6;

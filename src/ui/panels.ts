@@ -580,6 +580,19 @@ export function openSettingsPanel(
     qSeg.appendChild(b);
   });
   qField.appendChild(qSeg);
+  // 自动画质开关：掉帧时自动降档，不打扰玩家
+  const autoBtn = el(
+    'button',
+    `btn sm ghost${state.settings.autoQuality !== false ? ' on' : ''}`.trim(),
+    state.settings.autoQuality !== false ? '自动画质：开' : '自动画质：关',
+  );
+  autoBtn.addEventListener('click', () => {
+    const next = state.settings.autoQuality === false;
+    state.settings.autoQuality = next;
+    autoBtn.textContent = next ? '自动画质：开' : '自动画质：关';
+    autoBtn.classList.toggle('on', next);
+  });
+  qField.appendChild(autoBtn);
   body.appendChild(qField);
 
   // 色系：马卡龙 / 奶油水彩 / 果冻糖果 / 晨雾清新。切了会整体重建场景配色
