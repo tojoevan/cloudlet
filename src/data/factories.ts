@@ -17,6 +17,7 @@ export const PRODUCTS: Record<ProductId, ProductDef> = {
   jam: { id: 'jam', name: '果酱', price: 1_800 },
   wood: { id: 'wood', name: '木材', price: 140 },
   milk: { id: 'milk', name: '牛奶', price: 200 },
+  cheese: { id: 'cheese', name: '奶酪', price: 650 },
 };
 
 /** 是否「生产即卖钱」的产物——订单不应要求它，否则永远交不出去 */
@@ -49,6 +50,11 @@ export const RECIPES: RecipeDef[] = [
     id: 'juice:jam', factory: 'juice',
     inputs: { strawberry: 2 }, output: 'jam',
     timeMs: 360_000, unlockLevel: 10,
+  },
+  {
+    id: 'creamery:cheese', factory: 'creamery',
+    inputs: { milk: 2 }, output: 'cheese',
+    timeMs: 300_000, unlockLevel: 9,
   },
   {
     id: 'lumber:wood', factory: 'lumber',
@@ -97,10 +103,14 @@ export const FACTORIES: Record<FactoryType, FactoryDef> = {
     id: 'lumber', name: '伐木场', unlockLevel: 1, buildCost: 1_200,
     slotCosts: [2_000, 5_000], body: 0xc9a06a, roof: 0x8a5a3b, chimney: 0x6e4a32,
   },
+  creamery: {
+    id: 'creamery', name: '奶酪坊', unlockLevel: 9, buildCost: 9_000,
+    slotCosts: [14_000, 34_000], body: 0xfff6e2, roof: 0xd9a94e, chimney: 0xb98c39,
+  },
   ranch: {
     id: 'ranch', name: '畜牧场', unlockLevel: 4, buildCost: 5_000,
     slotCosts: [8_000, 20_000], body: 0xf3e2b8, roof: 0x9bbf6a, chimney: 0x86a85a,
   },
 };
 
-export const FACTORY_ORDER: FactoryType[] = ['bakery', 'dairy', 'juice', 'lumber', 'ranch'];
+export const FACTORY_ORDER: FactoryType[] = ['bakery', 'dairy', 'juice', 'lumber', 'ranch', 'creamery'];

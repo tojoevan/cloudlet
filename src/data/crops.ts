@@ -35,13 +35,23 @@ export const CROPS: Record<CropId, CropDef> = {
     id: 'pumpkin', name: '南瓜', growMs: 2_700_000, price: 2_100, unlockLevel: 18,
     stem: 0x7cc45f, fruit: 0xf79a48, height: 0.6,
   },
+  lettuce: {
+    id: 'lettuce', name: '生菜', growMs: 240_000, price: 140, unlockLevel: 7,
+    stem: 0x8fd06a, fruit: 0xbfe98a, height: 0.42,
+  },
+  grape: {
+    id: 'grape', name: '葡萄', growMs: 1_200_000, price: 900, unlockLevel: 16,
+    stem: 0x7a9c5a, fruit: 0x8e5bc4, height: 0.85,
+  },
   cotton: {
     id: 'cotton', name: '棉花', growMs: 7_200_000, price: 6_400, unlockLevel: 28,
     stem: 0xa9c88c, fruit: 0xfdfdf8, height: 0.7,
   },
 };
 
-export const CROP_ORDER: CropId[] = ['wheat', 'corn', 'carrot', 'strawberry', 'pumpkin', 'cotton'];
+export const CROP_ORDER: CropId[] = [
+  'wheat', 'corn', 'carrot', 'lettuce', 'strawberry', 'grape', 'pumpkin', 'cotton',
+];
 
 export function unlockedCrops(level: number): CropId[] {
   return CROP_ORDER.filter((id) => CROPS[id].unlockLevel <= level);

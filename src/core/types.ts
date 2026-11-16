@@ -1,7 +1,15 @@
-export type CropId = 'wheat' | 'corn' | 'carrot' | 'strawberry' | 'pumpkin' | 'cotton';
-export type ProductId = 'bread' | 'butter' | 'jam' | 'wood' | 'milk';
+export type CropId =
+  | 'wheat'
+  | 'corn'
+  | 'carrot'
+  | 'strawberry'
+  | 'pumpkin'
+  | 'cotton'
+  | 'lettuce'
+  | 'grape';
+export type ProductId = 'bread' | 'butter' | 'jam' | 'wood' | 'milk' | 'cheese';
 export type ItemId = CropId | ProductId;
-export type FactoryType = 'bakery' | 'dairy' | 'juice' | 'lumber' | 'ranch';
+export type FactoryType = 'bakery' | 'dairy' | 'juice' | 'lumber' | 'ranch' | 'creamery';
 export type BuildingType =
   | 'house'
   | 'cafe'
