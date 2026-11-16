@@ -84,6 +84,8 @@ export interface Order {
   coins: number;
   exp: number;
   createdAt: number;
+  /** 委托人：有名字的订单比"系统派单"更像一个小镇在跟你讲话 */
+  villager?: string;
 }
 
 export type AudioChannel =

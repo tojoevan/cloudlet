@@ -146,6 +146,11 @@ export class OrderBoard {
       btn.addEventListener('click', () => onDeliver(order.id));
       foot.appendChild(btn);
 
+      if (order.villager) {
+        const who = el('div', 'who');
+        who.textContent = `${order.villager} 的委托`;
+        card.appendChild(who);
+      }
       card.append(lines, foot);
       this.body.appendChild(card);
     }

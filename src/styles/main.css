@@ -354,6 +354,13 @@ button {
   border-radius: 2px;
 }
 
+.order .who {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--c-sub);
+  margin-bottom: 6px;
+}
+
 .order .foot {
   display: flex;
   align-items: center;

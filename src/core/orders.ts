@@ -5,6 +5,10 @@ import { rewardMult } from './simulation';
 import type { GameState, ItemId, Order, OrderLine, ProductId } from './types';
 
 export const ORDER_SLOTS = 3;
+/** 委托人的名字池：都是小镇居民的感觉，带一点家常气 */
+const VILLAGERS = ['小满', '阿吉', '柚子', '豆豆', '老周', '桃桃', '阿福', '米粒', '小鹿', '团子'];
+/** 村民委托的小费倍率：比系统派单略高一点，让"有人找你"这件事更值得期待 */
+const VILLAGER_TIP = 1.12;
 const FEVER_COMBO = 5;
 const FEVER_MS = 30_000;
 const COMBO_WINDOW_MS = 60_000;
@@ -39,12 +43,14 @@ export function makeOrder(state: GameState, now: number): Order {
   const lines = rollLines(items);
   const goods = lines.reduce((s, l) => s + itemPrice(l.id) * l.count, 0);
   const mult = 1.8 + Math.random() * 0.7;
+  const villager = VILLAGERS[Math.floor(Math.random() * VILLAGERS.length)];
   return {
     id: `o_${now.toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
     lines,
-    coins: Math.max(15, Math.floor(goods * mult)),
+    coins: Math.max(15, Math.floor(goods * mult * VILLAGER_TIP)),
     exp: Math.max(3, Math.ceil(goods / 20)),
     createdAt: now,
+    villager,
   };
 }
 
