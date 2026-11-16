@@ -5,6 +5,7 @@ import type { CropId, GameState, ItemId, OrderLine, ProductId } from './types';
 import { incomeBonus } from './islandBonus';
 import { dayNightIncome } from './daynight';
 import { festivalIncome } from './festival';
+import { collectionProsperity } from './collection';
 
 export const SAVE_VERSION = 2;
 
@@ -105,7 +106,9 @@ export function incomeRate(state: GameState): number {
 }
 
 export function prosperityOf(state: GameState): number {
-  return state.buildings.reduce((s, b) => s + BUILDINGS[b.type].prosperity * (b.level ?? 1), 0);
+  const raw = state.buildings.reduce((s, b) => s + BUILDINGS[b.type].prosperity * (b.level ?? 1), 0);
+  // 集齐装饰全集后繁荣度永久 +8%
+  return Math.round(raw * collectionProsperity(state));
 }
 
 export function populationOf(state: GameState): number {

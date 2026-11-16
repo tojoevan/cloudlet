@@ -1,4 +1,4 @@
-import { BUILDING_ORDER } from '../data/buildings';
+import { BUILDING_ORDER, PERMANENT_DECO } from '../data/buildings';
 import { CROP_ORDER } from '../data/crops';
 import { FACTORY_ORDER, PRODUCTS } from '../data/factories';
 import type { GameState } from './types';
@@ -21,6 +21,8 @@ export interface CollectionSet {
   /** 集齐后的倍率（作物/加工速度） */
   cropMul?: number;
   productMul?: number;
+  /** 集齐后的繁荣度倍率 */
+  prosperityMul?: number;
 }
 
 export const COLLECTION_SETS: CollectionSet[] = [
@@ -50,6 +52,14 @@ export const COLLECTION_SETS: CollectionSet[] = [
     productMul: 1.05,
   },
   {
+    id: 'deco',
+    name: '装饰全集',
+    total: PERMANENT_DECO.length,
+    found: (s) => PERMANENT_DECO.filter((t) => s.codex.buildings.includes(t)).length,
+    reward: '繁荣度 +8%',
+    prosperityMul: 1.08,
+  },
+  {
     id: 'factories',
     name: '工厂全集',
     total: FACTORY_ORDER.length,
@@ -77,6 +87,15 @@ export function collectionProductSpeed(s: GameState): number {
   let m = 1;
   for (const set of COLLECTION_SETS) {
     if (set.productMul && isSetComplete(s, set)) m *= set.productMul;
+  }
+  return m;
+}
+
+/** 已集齐的套装带来的繁荣度倍率 */
+export function collectionProsperity(s: GameState): number {
+  let m = 1;
+  for (const set of COLLECTION_SETS) {
+    if (set.prosperityMul && isSetComplete(s, set)) m *= set.prosperityMul;
   }
   return m;
 }

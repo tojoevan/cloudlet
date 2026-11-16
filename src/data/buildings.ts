@@ -143,6 +143,9 @@ export const DECO_TYPES: BuildingType[] = [
   'sakura', 'sunflower', 'scarecrow', 'snowman',
 ];
 
+/** 常驻装饰：不随季节消失，用来做「装饰收集」这类可完成的目标 */
+export const PERMANENT_DECO: BuildingType[] = ['bench', 'lamp', 'planter', 'statue'];
+
 /** 季节限定装饰：只有在对应季节才出现在建造面板里 */
 export const SEASONAL_DECO: Record<string, BuildingType> = {
   spring: 'sakura',

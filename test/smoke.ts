@@ -46,6 +46,8 @@ import { codexTotal } from '../src/core/codex';
 import { seasonOf, SEASONS, setSeasonOverride, decoAvailableIn, seasonGrassTint } from '../src/core/season';
 import { festivalOf, FESTIVALS } from '../src/core/festival';
 import { satisfactionOf, satisfactionBonus } from '../src/core/satisfaction';
+import { COLLECTION_SETS } from '../src/core/collection';
+import { prosperityOf, BUILDINGS as _B } from '../src/core/economy';
 import { accumulateSlowMs, shouldDowngrade, DOWNGRADE_AFTER_MS } from '../src/core/quality';
 import type { GameState } from '../src/core/types';
 import { setNightOverride, dayNightIncome } from '../src/core/daynight';
@@ -530,6 +532,25 @@ section('自动画质判定');
   for (let i = 0; i < 400; i++) acc = accumulateSlowMs(acc, 60);
   check('持续掉帧会累积到阈值', shouldDowngrade(acc), String(acc));
   check('阈值是 6 秒', DOWNGRADE_AFTER_MS === 6000);
+}
+
+section('装饰图鉴');
+{
+  const d = createInitialState('deco-set');
+  // 用足够大的繁荣度基数，避免四舍五入把 8% 抹平
+  for (let i = 0; i < 10; i++) {
+    d.buildings.push({ id: `dp${i}`, type: 'planter', seed: i, level: 1 } as never);
+  }
+  d.codex.buildings = [];
+  const before = prosperityOf(d);
+  const set = COLLECTION_SETS.find((x) => x.id === 'deco')!;
+  check('装饰全集只算常驻装饰', set.total === 4, String(set.total));
+  check('未集齐时进度为 0', set.found(d) === 0);
+  d.codex.buildings = ['bench', 'lamp', 'planter', 'statue'];
+  check('收集后进度满', set.found(d) === set.total, String(set.found(d)));
+  const after = prosperityOf(d);
+  check('集齐后繁荣度提升', after > before, `${after} vs ${before}`);
+  check('提升 8%', after === Math.round(before * 1.08), `${after} vs ${Math.round(before * 1.08)}`);
 }
 
 console.log(`\n${pass} 通过，${fail} 失败\n`);
