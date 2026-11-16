@@ -45,7 +45,8 @@ import { FACTORY_ORDER, PRODUCTS } from '../src/data/factories';
 import { ACHIEVEMENTS } from '../src/core/achievements';
 import { codexTotal } from '../src/core/codex';
 import { seasonOf, SEASONS, setSeasonOverride, decoAvailableIn, seasonGrassTint } from '../src/core/season';
-import { festivalOf, FESTIVALS } from '../src/core/festival';
+import { festivalOf, FESTIVALS, setFestivalDate } from '../src/core/festival';
+import { randomLine, SEASON_LINES, FESTIVAL_LINES } from '../src/data/lines';
 import { satisfactionOf, satisfactionBonus } from '../src/core/satisfaction';
 import { COLLECTION_SETS } from '../src/core/collection';
 import { prosperityOf, BUILDINGS as _B } from '../src/core/economy';
@@ -573,6 +574,26 @@ section('建筑可建造性');
   }
   check('所有建筑都能实际建造', failed.length === 0, failed.join(' | '));
   check('建造后建筑数增加', town.buildings.length > 22, String(town.buildings.length));
+}
+
+section('居民对话');
+{
+  setFestivalDate(null);
+  setSeasonOverride('winter');
+  setNightOverride(false);
+  const winterLines = new Set<string>();
+  for (let i = 0; i < 500; i++) winterLines.add(randomLine());
+  check('冬天会说应季的话', [...winterLines].some((l) => SEASON_LINES.winter.includes(l)));
+  check('对话非空', [...winterLines].every((l) => l.length > 0));
+
+  setFestivalDate(new Date(2026, 11, 20)); // 雪灯节
+  const festLines = new Set<string>();
+  for (let i = 0; i < 800; i++) festLines.add(randomLine());
+  check('节日期间会提节日', [...festLines].some((l) => FESTIVAL_LINES.snowlight.includes(l)));
+
+  setFestivalDate(null);
+  setSeasonOverride(null);
+  setNightOverride(false);
 }
 
 console.log(`\n${pass} 通过，${fail} 失败\n`);

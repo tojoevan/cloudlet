@@ -1,3 +1,7 @@
+import { currentFestival } from '../core/festival';
+import { currentSeason } from '../core/season';
+import { isNightNow } from '../core/daynight';
+
 /**
  * 居民的日常用语。
  * 写得克制一点：不夸夸其谈、不推动剧情，就是小镇里擦肩而过的一句话。
@@ -31,8 +35,37 @@ export const SPEECH_LINES: string[] = [
   '要不要一起去看云',
 ];
 
+/** 季节专属的日常话：换个季节，居民嘴里的话也跟着变 */
+export const SEASON_LINES: Record<string, string[]> = {
+  spring: ['花开得真好', '风里有花香', '燕子回来了', '该给花园松松土了'],
+  summer: ['蝉一直在叫', '午后有点晒', '河边最凉快', '要不要来个西瓜'],
+  autumn: ['风变凉了', '叶子开始黄了', '今年的南瓜不错', '该收点东西过冬了'],
+  winter: ['手有点凉', '呼出来的气都是白的', '外面风大，进屋坐坐', '今年会不会下雪'],
+};
+
+/** 节日期间的应景话 */
+export const FESTIVAL_LINES: Record<string, string[]> = {
+  sakura: ['樱花祭的花真好看', '落了一身花瓣', '要不要去树下坐坐'],
+  nightmarket: ['夜市好热闹', '来串烤年糕吗', '今晚灯特别亮'],
+  harvest: ['丰收节快乐', '今年收成真好', '来尝一口新做的'],
+  snowlight: ['雪灯今晚点亮了', '许个愿吧', '灯笼照得雪地发亮'],
+};
+
+/** 夜里的话 */
+export const NIGHT_LINES: string[] = ['该回家睡觉啦', '月亮真亮', '最后再看一眼就回去', '晚安，小镇'];
+
+/** 按「节日 > 季节 > 夜晚 > 日常」的权重混一句 */
 export function randomLine(): string {
-  return SPEECH_LINES[Math.floor(Math.random() * SPEECH_LINES.length)];
+  const fest = currentFestival();
+  const season = currentSeason();
+  const night = isNightNow();
+  const pool: string[] = [...SPEECH_LINES];
+  const seasonLines = SEASON_LINES[season.id] ?? [];
+  if (seasonLines.length) pool.push(...seasonLines, ...seasonLines); // 季节话出现率翻倍
+  if (night) pool.push(...NIGHT_LINES, ...NIGHT_LINES);
+  const festLines = fest ? FESTIVAL_LINES[fest.id] ?? [] : [];
+  if (festLines.length) pool.push(...festLines, ...festLines, ...festLines); // 节日话最优先
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 /**
