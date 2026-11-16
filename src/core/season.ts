@@ -27,17 +27,17 @@ export interface SeasonDef {
 export const SEASONS: Record<SeasonId, SeasonDef> = {
   spring: {
     id: 'spring', name: '春', color: 0xf6a5c0, deco: 'sakura',
-    crops: ['wheat', 'strawberry'], speed: 1.2,
+    crops: ['wheat', 'strawberry', 'rose'], speed: 1.2,
     note: '樱花开了，小麦与草莓长得快 20%',
   },
   summer: {
     id: 'summer', name: '夏', color: 0x62b6e8, deco: 'sunflower',
-    crops: ['corn', 'carrot'], speed: 1.2,
+    crops: ['corn', 'carrot', 'blueberry'], speed: 1.2,
     note: '日头很长，玉米与胡萝卜长得快 20%',
   },
   autumn: {
     id: 'autumn', name: '秋', color: 0xe8934a, deco: 'scarecrow',
-    crops: ['pumpkin', 'wheat'], speed: 1.2,
+    crops: ['pumpkin', 'wheat', 'sugarcane'], speed: 1.2,
     note: '南瓜丰收，南瓜与小麦长得快 20%',
   },
   winter: {

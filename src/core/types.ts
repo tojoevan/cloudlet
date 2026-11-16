@@ -6,10 +6,29 @@ export type CropId =
   | 'pumpkin'
   | 'cotton'
   | 'lettuce'
-  | 'grape';
-export type ProductId = 'bread' | 'butter' | 'jam' | 'wood' | 'milk' | 'cheese';
+  | 'grape'
+  | 'rose'
+  | 'blueberry'
+  | 'sugarcane';
+export type ProductId =
+  | 'bread'
+  | 'butter'
+  | 'jam'
+  | 'wood'
+  | 'milk'
+  | 'cheese'
+  | 'sugar'
+  | 'perfume';
 export type ItemId = CropId | ProductId;
-export type FactoryType = 'bakery' | 'dairy' | 'juice' | 'lumber' | 'ranch' | 'creamery';
+export type FactoryType =
+  | 'bakery'
+  | 'dairy'
+  | 'juice'
+  | 'lumber'
+  | 'ranch'
+  | 'creamery'
+  | 'sugar'
+  | 'perfume';
 export type BuildingType =
   | 'house'
   | 'cafe'

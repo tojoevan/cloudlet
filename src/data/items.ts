@@ -16,6 +16,11 @@ export const ITEM_COLOR: Record<ItemId, number> = {
   lettuce: 0xa9dc7c,
   grape: 0x8e5bc4,
   cheese: 0xe8c56a,
+  rose: 0xe0527a,
+  blueberry: 0x5b6bc4,
+  sugarcane: 0xd9e08a,
+  sugar: 0xf3f0e4,
+  perfume: 0xd86a9a,
 };
 
 export function itemColor(id: ItemId): number {

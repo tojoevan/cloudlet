@@ -43,6 +43,18 @@ export const CROPS: Record<CropId, CropDef> = {
     id: 'grape', name: '葡萄', growMs: 1_200_000, price: 900, unlockLevel: 16,
     stem: 0x7a9c5a, fruit: 0x8e5bc4, height: 0.85,
   },
+  rose: {
+    id: 'rose', name: '玫瑰', growMs: 600_000, price: 300, unlockLevel: 9,
+    stem: 0x6fae5c, fruit: 0xe0527a, height: 0.6,
+  },
+  blueberry: {
+    id: 'blueberry', name: '蓝莓', growMs: 480_000, price: 260, unlockLevel: 12,
+    stem: 0x7a9c5a, fruit: 0x5b6bc4, height: 0.5,
+  },
+  sugarcane: {
+    id: 'sugarcane', name: '甘蔗', growMs: 1_500_000, price: 1_200, unlockLevel: 19,
+    stem: 0x9cc46a, fruit: 0xd9e08a, height: 1.05,
+  },
   cotton: {
     id: 'cotton', name: '棉花', growMs: 7_200_000, price: 6_400, unlockLevel: 28,
     stem: 0xa9c88c, fruit: 0xfdfdf8, height: 0.7,
@@ -50,7 +62,8 @@ export const CROPS: Record<CropId, CropDef> = {
 };
 
 export const CROP_ORDER: CropId[] = [
-  'wheat', 'corn', 'carrot', 'lettuce', 'strawberry', 'grape', 'pumpkin', 'cotton',
+  'wheat', 'corn', 'carrot', 'lettuce', 'rose', 'strawberry',
+  'blueberry', 'grape', 'pumpkin', 'sugarcane', 'cotton',
 ];
 
 export function unlockedCrops(level: number): CropId[] {

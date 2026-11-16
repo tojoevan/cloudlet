@@ -15,6 +15,9 @@ const FORM: Record<CropId, Form> = {
   pumpkin: 'vine',
   lettuce: 'leafy',
   grape: 'vine',
+  rose: 'leafy',
+  blueberry: 'vine',
+  sugarcane: 'grain',
 };
 
 export interface CropMesh {
