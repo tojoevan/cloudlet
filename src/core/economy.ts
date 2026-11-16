@@ -2,6 +2,7 @@ import { BUILDINGS } from '../data/buildings';
 import { CROPS } from '../data/crops';
 import { PRODUCTS } from '../data/factories';
 import type { CropId, GameState, ItemId, OrderLine, ProductId } from './types';
+import { incomeBonus } from './islandBonus';
 
 export const SAVE_VERSION = 2;
 
@@ -96,7 +97,7 @@ export function consumeItems(state: GameState, lines: OrderLine[]): void {
 export function incomeRate(state: GameState): number {
   const factoryPart = state.factories.reduce((s, f) => s + f.slots.length, 0) * 0.8;
   const prosperity = prosperityOf(state);
-  return (state.level * 0.5 + prosperity * 0.3 + factoryPart) / 60;
+  return ((state.level * 0.5 + prosperity * 0.3 + factoryPart) / 60) * incomeBonus(state);
 }
 
 export function prosperityOf(state: GameState): number {

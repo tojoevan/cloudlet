@@ -2,6 +2,7 @@ import { ACHIEVEMENTS } from '../core/achievements';
 import { codexFound, codexTotal } from '../core/codex';
 import { itemName, itemPrice, populationOf, SELL_RATE } from '../core/economy';
 import { prosperityOf } from '../core/economy';
+import { ISLAND_BONUS } from '../core/islandBonus';
 import { FOCUS_PRESETS, focusRemainMs, isFocusing } from '../core/focus';
 import type { BuildingType, CropId, FactoryType, GameState, ItemId, Settings } from '../core/types';
 import { BUILDINGS, BUILDING_ORDER } from '../data/buildings';
@@ -200,6 +201,14 @@ export function openBuildPanel(
     islRow.appendChild(b);
   }
   body.appendChild(islRow);
+  // 当前岛的产出加成：让「去哪座岛」这件事有据可依
+  const activeMeta = state.islands.find((x) => x.id === state.activeIsland);
+  const note = ISLAND_BONUS[state.activeIsland]?.note;
+  if (activeMeta) {
+    body.appendChild(
+      el('p', 'hint', `${activeMeta.name}${note ? `：${note}` : ''}`),
+    );
+  }
 
   // 方岛测试便捷入口：清空并随机重铺一层内容，方便看运行效果
   if (state.activeIsland === 'square') {

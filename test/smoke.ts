@@ -370,5 +370,26 @@ section('岛屿解锁');
   check('切换后可切回', switchIsland(isl, 'round') === true);
 }
 
+section('岛屿加成');
+{
+  const b = createInitialState('bonus-test');
+  b.level = 12; // 草莓需要 10 级
+  const t = Date.now();
+  // 主岛：草莓按原速
+  plant(b, 0, 'strawberry', t);
+  const normal = b.plots[0].readyAt - t;
+  // 果园岛：草莓快 30%
+  for (let i = 0; i < 30; i++) b.buildings.push({ id: `h${i}`, type: 'house', seed: i, level: 1 } as never);
+  switchIsland(b, 'orchard');
+  plant(b, 0, 'strawberry', t);
+  const boosted = b.plots[0].readyAt - t;
+  check('果园岛草莓更快', boosted < normal, `${boosted} vs ${normal}`);
+  check('加速约 30%', Math.abs(boosted - Math.round(normal / 1.3)) <= 2, String(boosted));
+  // 非水果作物不受影响
+  plant(b, 1, 'wheat', t);
+  const wheatBoosted = b.plots[1].readyAt - t;
+  check('小麦不受果园加成影响', wheatBoosted === 30_000, String(wheatBoosted));
+}
+
 console.log(`\n${pass} 通过，${fail} 失败\n`);
 if (fail > 0) process.exit(1);

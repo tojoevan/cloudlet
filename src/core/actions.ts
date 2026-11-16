@@ -5,6 +5,7 @@ import { recordBuilding, recordCrop, recordFactory } from './codex';
 import { addItem, HARVEST_YIELD, itemPrice, populationOf, roomFor, SELL_RATE } from './economy';
 import { FOCUS_MULT, isFocusing } from './focus';
 import { activeIslandMeta } from './island';
+import { cropSpeed, productSpeed } from './islandBonus';
 import { canPlace, expandDir, firstFreeCell } from './grid';
 import type {
   BuildingType,
@@ -40,7 +41,8 @@ export function plant(state: GameState, plotId: number, crop: CropId, now: numbe
 
   plot.crop = crop;
   plot.plantedAt = now;
-  plot.readyAt = now + CROPS[crop].growMs;
+  // 岛屿加成：果园岛的水果类作物长得更快
+  plot.readyAt = now + Math.round(CROPS[crop].growMs / cropSpeed(state, crop));
   state.lastCrop = crop;
   return { ok: true, data: undefined };
 }
@@ -158,8 +160,9 @@ export function startRecipe(
     else state.inventory[key] = left;
   }
 
-  // 专注期间生产提速，让番茄钟的收益看得见
-  const timeMs = isFocusing(state, now) ? Math.round(recipe.timeMs / FOCUS_MULT) : recipe.timeMs;
+  // 专注期间生产提速；岛屿加成（牧场岛的奶制品）也在这里叠乘
+  const base = recipe.timeMs / productSpeed(state, recipe.output);
+  const timeMs = isFocusing(state, now) ? Math.round(base / FOCUS_MULT) : Math.round(base);
   slot.recipe = recipeId;
   slot.readyAt = now + timeMs;
   return { ok: true, data: undefined };
