@@ -51,6 +51,7 @@ import type { PerfSnapshot } from './render/scene';
 import { setScheme, getSchemeId } from './render/palette';
 import { closeModal, el, floatAt, fmtDur, initUI, openModal, toast } from './ui/dom';
 import { ActionBar, HUD, OrderBoard, WishBoard } from './ui/hud';
+import { Guide } from './ui/guide';
 import { SpeechBubble } from './ui/speech';
 import {
   openAchievementsPanel,
@@ -141,6 +142,7 @@ const hud = new HUD(
 );
 const board = new OrderBoard();
 const wishBoard = new WishBoard();
+const guide = new Guide();
 // 订单面板挂到顶部栏「会员等级」芯片之后，随顶栏流式排布，不再悬浮遮挡画面
 hud.el.appendChild(board.el);
 // 心愿面板挂在左侧、与右侧订单对称，避免顶栏被挤成一条长龙
@@ -472,6 +474,55 @@ function doHarvest(plotId: number): void {
   if (r.data.overflow > 0) floatAtPlot(plotId, `仓满折现`, 'gold');
   markDirty();
   saveNow();
+}
+
+/**
+ * 新手引导：三步（种 → 收 → 交）。
+ * 只在有存档但未完成时出现；打开弹窗时自动让位，不打断玩家。
+ */
+function updateGuide(): void {
+  if (state.guideDone) {
+    guide.hide();
+    return;
+  }
+  const modalOpen = !!document.querySelector('.scrim');
+  const focusing = isFocusing(state, Date.now());
+  const planted = state.plots.some((p) => p.crop);
+  const harvested = state.stats.harvests > 0;
+  const delivered = state.stats.ordersDone > 0;
+
+  if (planted && harvested && delivered) {
+    state.guideDone = true;
+    guide.hide();
+    guide.highlight(board.el, false);
+    toast('你已经会种地啦，小镇交给你了！');
+    saveNow();
+    return;
+  }
+  if (modalOpen || focusing) {
+    guide.hide();
+    guide.highlight(board.el, false);
+    return;
+  }
+
+  const now2 = Date.now();
+  const ripeIdx = state.plots.findIndex((p) => p.crop && p.readyAt <= now2);
+  const emptyIdx = state.plots.findIndex((p) => !p.crop);
+  const focusIdx = ripeIdx >= 0 ? ripeIdx : emptyIdx >= 0 ? emptyIdx : 0;
+  const shape = state.islands.find((i) => i.id === state.activeIsland)?.shape ?? 'round';
+  const wp = plotPosition(focusIdx, shape);
+  wp.y += 0.2;
+  const sp = world.worldToScreen(wp, view.camera, canvas);
+
+  if (!harvested) {
+    guide.show(planted ? '等它长大…成熟后会发光，点它收获' : '先点一块空地，种下你的第一颗种子');
+    guide.pointAt(sp.x, sp.y);
+    guide.highlight(board.el, false);
+  } else if (!delivered) {
+    guide.show('把货物交给村民的订单，点右侧的「发货」');
+    guide.pointAt(sp.x, sp.y);
+    guide.highlight(board.el, true);
+  }
 }
 
 function doWish(id: string): void {
@@ -1336,6 +1387,7 @@ function frame(t: number): void {
     saveNow();
   }
 
+  updateGuide();
   hud.update(state, now, auth.memberTier());
   board.update(state, doDeliver);
   wishBoard.update(state, doWish);
@@ -1364,6 +1416,9 @@ view.setTilt(state.settings.quality !== 'low' && !state.settings.powerSave);
 view.setPowerSave(state.settings.powerSave);
 // 注意：这里不要再手动 view.setSky(isNight())——时段光色已由 syncTimeOfDay 统一负责，
 // 用真实时钟覆盖会把 ?hour= 预览和凌晨启动的配色一起打回夜间。
+// 老玩家（已经交过订单）不再走新手引导，避免打开就被塞一张提示卡
+if (state.stats.ordersDone > 0) state.guideDone = true;
+
 view.resize();
 requestAnimationFrame(frame);
 

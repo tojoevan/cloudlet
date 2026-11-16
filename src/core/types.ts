@@ -196,6 +196,8 @@ export interface GameState {
   orders: Order[];
   /** 居民心愿（最多 WISH_SLOTS 条） */
   wishes: Wish[];
+  /** 新手引导是否已完成（完成一次后不再打扰） */
+  guideDone?: boolean;
   stats: Stats;
   settings: Settings;
   /** Fever 结束时刻（ms），期间收益翻倍。 */
