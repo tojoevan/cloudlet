@@ -63,21 +63,21 @@ function mix(a: number, b: number, t: number): number {
 // 纪律：只有一个主色（草绿）、一个辅色（暖沙土）、一个强调（珊瑚红），
 // 其余色相全部向天空靠拢并降饱和——画面因此"通透"而不是"花"。
 const MACARON: Palette = {
-  sky: 0xbfe4f5,
+  sky: 0x5face2,
   skyDusk: 0xffc2a4,
   skyNight: 0x2b3a72,
-  grass: 0x9cd07e,
-  grassDark: 0x83ba68,
-  soil: 0xe9cfa2,
+  grass: 0x8fc96b,
+  grassDark: 0x74ad55,
+  soil: 0xe4c795,
   soilDark: 0xcfb181,
-  tilled: 0xbf9569,
-  rock: 0xcdd9e2,
+  tilled: 0xb08352,
+  rock: 0xc4d2dd,
   rockDark: 0xaebcc9,
   trunk: 0xa9794f,
-  leafGreen: 0x86c46b,
-  leafDeep: 0x63a55c,
-  leafLight: 0xa9d98c,
-  water: 0x7fd0e0,
+  leafGreen: 0x74b856,
+  leafDeep: 0x42804a,
+  leafLight: 0x97cf72,
+  water: 0x63c3d8,
   cloud: 0xffffff,
   path: 0xefe3c6,
   road: 0x9aa6b2,
@@ -153,10 +153,10 @@ const MIST: Palette = {
 // ---------- 住宅配色（从马卡龙基础色派生各色系变体） ----------
 
 const HOUSE_BASE: HousePalette[] = [
-  { body: 0xfdf3e3, roof: 0xef8b6a, accent: 0x9fd8ea },
-  { body: 0xf7e6c8, roof: 0xd9714f, accent: 0xffe2b0 },
-  { body: 0xf2f7f2, roof: 0x7fb7ab, accent: 0xffd9a0 },
-  { body: 0xfbe9d6, roof: 0xc98f73, accent: 0xbfe6f2 },
+  { body: 0xfffaf1, roof: 0xe8703f, accent: 0x9fd8ea },
+  { body: 0xfff4dd, roof: 0xc9542c, accent: 0xffe2b0 },
+  { body: 0xfbfdfb, roof: 0x4f9c8e, accent: 0xffd9a0 },
+  { body: 0xfff6ea, roof: 0xa9643f, accent: 0xbfe6f2 },
   { body: 0xf5efe4, roof: 0xe3a55c, accent: 0xd8ecc8 },
   { body: 0xeef4f6, roof: 0x8aa7c9, accent: 0xffd9c0 },
 ];
@@ -195,7 +195,7 @@ export const SCHEMES: Record<string, Scheme> = {
   macaron: {
     id: 'macaron',
     name: '云海',
-    light: { hemi: 0.56, sun: 1.34, fill: 0.22 },
+    light: { hemi: 0.46, sun: 1.58, fill: 0.2 },
     houses: HOUSE_BASE,
     shirts: SHIRTS_BASE,
     palette: MACARON,

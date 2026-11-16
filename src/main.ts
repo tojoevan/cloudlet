@@ -1511,8 +1511,7 @@ function frame(t: number): void {
   autoQualityTick(rawInterval);
   view.render();
   if (state.settings.perfMonitor) perfSample(rawInterval, view.perf);
-  requestAnimationFrame(frame);
-}
+  requestAnimationFrame(frame);}
 
 const lowSpecInit = view.isPowerSave;
 // 首屏若停在方岛且为空，先随机铺测试内容再同步

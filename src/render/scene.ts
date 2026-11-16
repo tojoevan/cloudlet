@@ -12,7 +12,8 @@ import { Weather, type WeatherKind } from './weather';
  */
 function skyBottom(hex: number, night: boolean): THREE.Color {
   const c = new THREE.Color(hex);
-  c.lerp(new THREE.Color(0xffffff), night ? 0.14 : 0.32);
+  // 白天只提亮一点点：提太多会把渐变洗成灰白（粉彩最容易死在这里）
+  c.lerp(new THREE.Color(0xffffff), night ? 0.1 : 0.1);
   return c;
 }
 function skyTop(hex: number, night: boolean): THREE.Color {
@@ -151,7 +152,8 @@ export class SceneView {
   private postScene = new THREE.Scene();
   private postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private postMat: THREE.ShaderMaterial | null = null;
-  private tiltOn = true;
+  /** ?post=0 时绕过整趟后处理（排查用） */
+  private postEnabled = new URLSearchParams(location.search).get('post') !== '0';
   /** 远景背板（远山 + 云海），不随换岛重建 */
   private backdrop!: Backdrop;
   private weather = new Weather();
@@ -179,7 +181,7 @@ export class SceneView {
         uTiltAmt: { value: 0.18 },
         uGlow: { value: new THREE.Color(0xffffff) },
         uGlowDir: { value: new THREE.Vector3(0.15, 0.9, 0.25).normalize() },
-        uGlowAmt: { value: 0.35 },
+        uGlowAmt: { value: 0.2 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -300,7 +302,9 @@ export class SceneView {
         uTexel: { value: new THREE.Vector2(1 / (size.x || 1), 1 / (size.y || 1)) },
         uBlur: { value: 3.0 },
         uBand: { value: 0.28 },
-        uSat: { value: 1.06 },
+        uSat: { value: 1.02 },
+        uExposure: { value: 1.0 },
+        uBlurAmt: { value: 3.0 },
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
@@ -315,14 +319,30 @@ export class SceneView {
         uniform float uBlur;
         uniform float uBand;
         uniform float uSat;
+        uniform float uExposure;
+        uniform float uBlurAmt;
         varying vec2 vUv;
+
+        /**
+         * 高光柔化：只压 0.72 以上的部分，中低亮度原样保留。
+         *
+         * 为什么不用 ACES：ACES 会把高亮处的色相拉向白，粉彩天空会被压成灰绿色。
+         * 这套画风的关键是"柔和但不发灰"，所以只做高光的肩部压缩，
+         * 既避免亮部死死撞上 1.0，又不牺牲中间调的饱和度。
+         */
+        vec3 rolloff(vec3 x) {
+          vec3 over = max(x - 0.9, 0.0);
+          return min(x, vec3(0.9)) + over / (1.0 + over * 3.0);
+        }
 
         void main() {
           // 距画面竖直中心的距离：中间清楚，上下渐糊
           float d = abs(vUv.y - 0.5) * 2.0;
-          float blurAmt = smoothstep(1.0 - uBand, 1.0, d) * uBlur;
+          float blurAmt = smoothstep(1.0 - uBand, 1.0, d) * uBlurAmt;
 
           vec3 c = texture2D(tDiffuse, vUv).rgb;
+          // 只在极高光做肩部压缩，中间调保持原样（保留粉彩天空的色相）
+          c = rolloff(c * uExposure);
           if (blurAmt > 0.001) {
             vec3 acc = c;
             float wsum = 1.0;
@@ -344,8 +364,8 @@ export class SceneView {
           c = mix(vec3(l), c, uSat);
           // 分离色调：暗部往冷蓝压、亮部往暖黄提。
           // 这是影视调色的经典手法，能给"平涂低多边形"补上一层统一的调子。
-          vec3 shadowTint = vec3(0.93, 0.97, 1.07);
-          vec3 highTint = vec3(1.06, 1.015, 0.95);
+          vec3 shadowTint = vec3(0.96, 0.985, 1.04);
+          vec3 highTint = vec3(1.03, 1.01, 0.975);
           c *= mix(shadowTint, highTint, smoothstep(0.22, 0.86, l));
           // 极轻暗角
           vec2 p = vUv - 0.5;
@@ -845,7 +865,9 @@ export class SceneView {
    */
   /** 移轴开关：省电模式或低画质时关掉，省一次全屏 pass */
   setTilt(on: boolean): void {
-    this.tiltOn = on;
+    // 低画质仍走这一趟 post（只是不做模糊）：ACES 与调色都在这里，
+    // 关掉整趟会让低画质档的色调与标准档不一致。
+    if (this.postMat) this.postMat.uniforms.uBlurAmt.value = on ? 3.0 : 0;
   }
 
   setQuality(q: 'low' | 'standard' | 'high'): void {
@@ -917,7 +939,7 @@ export class SceneView {
 
   render(): void {
     let info: THREE.WebGLInfo;
-    if (this.tiltOn && this.rt && this.postMat) {
+    if (this.postEnabled && this.rt && this.postMat) {
       this.syncPostSize();
       const prev = this.renderer.getRenderTarget();
       this.renderer.setRenderTarget(this.rt);

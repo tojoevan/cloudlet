@@ -41,6 +41,7 @@ import {
 } from './meshes/terrain';
 import { ISLAND_RADIUS, getPalette } from './palette';
 import { seasonGrassTint } from '../core/season';
+import { makeGrassField } from './grass';
 import { matOwn } from './mat';
 import { mulberry32, range } from './rng';
 import { isRipe, plotProgress } from '../core/simulation';
@@ -159,6 +160,8 @@ export class World {
   /** 自动小径（把散落的建筑串成街区） */
   private pathMesh: THREE.Mesh | null = null;
   private pathCurb: THREE.Mesh | null = null;
+  /** 实例化草皮：整片地面只有 1 次绘制 */
+  private grass: THREE.InstancedMesh | null = null;
   /** 沿街设施：重建路径时要先清掉旧的，否则每加一栋房子就会重复叠一层 */
   private pathProps: THREE.Object3D[] = [];
   private pathGeo: THREE.BufferGeometry | null = null;
@@ -260,6 +263,56 @@ export class World {
       this.decorateRound();
     }
     this.decorateFlavor();
+    this.buildGrass();
+  }
+
+  /**
+   * 密集草皮：整片地面 1 次绘制。
+   * 它的作用不是"装饰"，而是给地面提供**尺度与高频细节**——
+   * 平滑的绿色在等距视角下会显得空，草叶一上去才像"草地"。
+   */
+  private buildGrass(): void {
+    if (this.lowSpec) return;
+    if (this.grass) {
+      this.root.remove(this.grass);
+      this.grass.dispose();
+      this.grass = null;
+    }
+    const rng = mulberry32(9127);
+    const pts: { x: number; z: number; s: number }[] = [];
+    // 成簇分布：先撒簇心，再在簇心周围撒 8~18 株，比均匀撒更像自然草皮
+    const clump = (cx: number, cz: number) => {
+      const n = 12 + Math.floor(rng() * 14);
+      for (let i = 0; i < n; i++) {
+        const a = rng() * Math.PI * 2;
+        const r = Math.sqrt(rng()) * 0.55;
+        pts.push({ x: cx + Math.cos(a) * r, z: cz + Math.sin(a) * r, s: 0.75 + rng() * 0.55 });
+      }
+    };
+    if (this.islandShape === 'square') {
+      // 方岛内部被路径/农田/建筑占满，草只铺在网格外的岛缘环带
+      const half = (SQUARE_N / 2) * CELL;
+      const outer = 8.2;
+      for (let i = 0; i < 380; i++) {
+        const a = rng() * Math.PI * 2;
+        const r = half + Math.sqrt(rng()) * (outer - half);
+        clump(Math.cos(a) * r, Math.sin(a) * r);
+      }
+    } else {
+      const R = this.islandRadius;
+      for (let i = 0; i < 620; i++) {
+        const a = rng() * Math.PI * 2;
+        const r = Math.sqrt(rng()) * R * 0.95;
+        const x = Math.cos(a) * r;
+        const z = Math.sin(a) * r;
+        if (Math.hypot(x - POND.x, z - POND.y) < POND_RADIUS + 0.5) continue;
+        if (Math.hypot(x - FARM_CENTER.x, z - FARM_CENTER.z) < 3.0) continue;
+        clump(x, z);
+      }
+    }
+    if (pts.length === 0) return;
+    this.grass = makeGrassField(pts);
+    this.root.add(this.grass);
   }
 
   /**
