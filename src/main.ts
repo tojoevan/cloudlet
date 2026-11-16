@@ -34,6 +34,7 @@ import { cancelFocus, focusProgress, isFocusing, settleFocus, startFocus } from 
 import { autoFocusStep } from './core/autoplay';
 import { deliver } from './core/orders';
 import { deliverWish } from './core/wishes';
+import { ISLAND_BONUS } from './core/islandBonus';
 import { clearLocal, exportCode, exportSaveFile, getDeviceId, importCode, loadLocal, saveLocal } from './core/save';
 import { canPlace } from './core/grid';
 import { advance, tick } from './core/simulation';
@@ -591,7 +592,8 @@ function switchIslandTo(id: string): void {
   // 整岛重建：圆岛/方岛地形与建筑布局都不同
   world.rebuild(state, isNight());
   const meta = state.islands.find((x) => x.id === id);
-  toast(`已切换到${meta?.name ?? '岛屿'}`);
+  const bonusNote = ISLAND_BONUS[state.activeIsland]?.note;
+  toast(`已切换到${meta?.name ?? '岛屿'}${bonusNote ? ` · ${bonusNote}` : ''}`);
   markDirty();
   saveNow();
 }
