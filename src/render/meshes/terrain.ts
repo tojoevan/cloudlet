@@ -390,15 +390,28 @@ export function makePond(seed = 13579): THREE.Group {
   bed.receiveShadow = true;
   g.add(bed);
 
-  // 水：填在环心，半透明蓝，略高于草地
+  // 水：填在环心，半透明蓝，略高于草地。
+  // 分两层做"深浅色阶"：外圈浅水、内圈深水——一整片纯色会像塑料板。
+  const deepColor = new THREE.Color(getPalette().water).lerp(new THREE.Color(0x2f7f9c), 0.3);
+  const shallowColor = new THREE.Color(getPalette().water).lerp(new THREE.Color(0xffffff), 0.3);
   const water = new THREE.Mesh(
-    new THREE.CylinderGeometry(R, R, 0.16, 28),
-    matOwn(getPalette().water, { transparent: true, opacity: 0.92 }),
+    new THREE.CylinderGeometry(R * 0.86, R * 0.86, 0.16, 28),
+    matOwn(deepColor.getHex(), { transparent: true, opacity: 0.94 }),
   );
   const waterBaseY = 0.06; // 顶面 ≈ +0.14，与土岸顶齐平
   water.position.y = waterBaseY;
   water.receiveShadow = true;
   g.add(water);
+
+  // 浅水圈：贴岸的一圈更浅、更透，形成自然的岸边过渡
+  const shallow = new THREE.Mesh(
+    new THREE.RingGeometry(R * 0.84, R, 32),
+    matOwn(shallowColor.getHex(), { transparent: true, opacity: 0.82, side: THREE.DoubleSide }),
+  );
+  shallow.rotation.x = -Math.PI / 2;
+  shallow.position.y = waterBaseY + 0.081;
+  g.add(shallow);
+
   g.userData.water = water;
   g.userData.waterBaseY = waterBaseY;
 
