@@ -1192,6 +1192,18 @@ setInterval(() => {
   applyWeather(next, true);
 }, 4 * 60_000);
 
+// ?panel=codex|ach|build 直接打开对应面板（调试/截图用）
+{
+  const panel = new URLSearchParams(location.search).get('panel');
+  if (panel) {
+    setTimeout(() => {
+      if (panel === 'codex') openCodexPanel(state);
+      else if (panel === 'ach') openAchievementsPanel(state);
+      else if (panel === 'build') bar.el.querySelector<HTMLButtonElement>('.btn.primary, .btn')?.click();
+    }, 700);
+  }
+}
+
 // ?weather=rain|snow|sakura|clear 可指定天气（调试/预览用，不影响存档）
 {
   const raw = new URLSearchParams(location.search).get('weather');

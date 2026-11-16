@@ -38,6 +38,7 @@ import { advance, rewardMult, tick } from '../src/core/simulation';
 import { createInitialState } from '../src/core/state';
 import { deliverWish } from '../src/core/wishes';
 import { switchIsland } from '../src/core/island';
+import { CROP_ORDER } from '../src/data/crops';
 import type { GameState } from '../src/core/types';
 
 let pass = 0;
@@ -389,6 +390,23 @@ section('岛屿加成');
   plant(b, 1, 'wheat', t);
   const wheatBoosted = b.plots[1].readyAt - t;
   check('小麦不受果园加成影响', wheatBoosted === 30_000, String(wheatBoosted));
+}
+
+section('收集奖励');
+{
+  const c = createInitialState('collection-test');
+  c.level = 12;
+  const t = Date.now();
+  // 未集齐时无加成
+  plant(c, 0, 'wheat', t);
+  const normal = c.plots[0].readyAt - t;
+  check('未集齐时按原速', normal === 30_000, String(normal));
+  // 集齐作物图鉴 → 作物 +10%
+  c.codex.crops = [...CROP_ORDER];
+  plant(c, 1, 'wheat', t);
+  const boosted = c.plots[1].readyAt - t;
+  check('集齐作物后更快', boosted < normal, `${boosted} vs ${normal}`);
+  check('约快 10%', Math.abs(boosted - Math.round(normal / 1.1)) <= 2, String(boosted));
 }
 
 console.log(`\n${pass} 通过，${fail} 失败\n`);

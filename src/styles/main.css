@@ -612,6 +612,8 @@ button {
 .scrim {
   position: absolute;
   inset: 0;
+  /* 必须高于左右两侧的悬浮面板（心愿 z4 / 订单 z4），否则弹窗会被它们压住 */
+  z-index: 20;
   background: rgba(43, 58, 85, 0.32);
   display: flex;
   align-items: flex-end;

@@ -3,6 +3,7 @@ import { codexFound, codexTotal } from '../core/codex';
 import { itemName, itemPrice, populationOf, SELL_RATE } from '../core/economy';
 import { prosperityOf } from '../core/economy';
 import { ISLAND_BONUS } from '../core/islandBonus';
+import { COLLECTION_SETS } from '../core/collection';
 import { FOCUS_PRESETS, focusRemainMs, isFocusing } from '../core/focus';
 import type { BuildingType, CropId, FactoryType, GameState, ItemId, Settings } from '../core/types';
 import { BUILDINGS, BUILDING_ORDER, DECO_TYPES } from '../data/buildings';
@@ -735,6 +736,24 @@ export function openFocusPanel(
 
 export function openCodexPanel(state: GameState): void {
   const body = el('div');
+
+  // 收集奖励置顶：让玩家一眼看到「再收几样能拿到什么」
+  body.appendChild(el('p', 'hint', '收集奖励（集齐一类永久生效）'));
+  const rewardGrid = el('div', 'grid');
+  for (const set of COLLECTION_SETS) {
+    const found = Math.min(set.total, set.found(state));
+    const done = found >= set.total;
+    rewardGrid.appendChild(
+      card({
+        color: done ? 0x6a994e : 0xb9c4d2,
+        name: `${set.name} ${found}/${set.total}`,
+        meta: done ? `✓ ${set.reward}` : set.reward,
+        disabled: false,
+        onClick: () => closeModal(),
+      }),
+    );
+  }
+  body.appendChild(rewardGrid);
 
   const section = (title: string) => {
     body.appendChild(el('p', 'hint', title));
