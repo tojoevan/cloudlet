@@ -12,12 +12,14 @@ import { makeBuilding, makeFactory, makeParkBench } from './meshes/structures';
 import {
   LAMP_GLASS,
   makeBarrels,
+  makeCrateStack,
   makeFenceLine,
   makeHedge,
   makeStall,
   makeFlowerBed,
   makeLamp,
   makeMailbox,
+  makePlanter,
   makeSignpost,
   makeWell,
 } from './meshes/props';
@@ -151,6 +153,8 @@ export class World {
   private aoSig = '';
   /** 自动小径（把散落的建筑串成街区） */
   private pathMesh: THREE.Mesh | null = null;
+  /** 沿街设施：重建路径时要先清掉旧的，否则每加一栋房子就会重复叠一层 */
+  private pathProps: THREE.Object3D[] = [];
   private pathGeo: THREE.BufferGeometry | null = null;
   private pathSig = '';
   private bob = 0;
@@ -224,6 +228,7 @@ export class World {
     this.windowLights = [];
     this.lampLights = [];
     this.pops = [];
+    this.pathProps = [];
     this.swayers = [];
     this.plotTiles = [];
     this.pickables = [];
@@ -288,7 +293,20 @@ export class World {
    * 渲染上把全部小径格子合并成 1 个几何体（1 个 draw call），每格一块略缩进的
    * 方砖，留出缝隙就是石板路的感觉，也省掉了连通性拼接的复杂度。
    */
+  /** 清掉上一次摆的沿街设施（几何体与材质一起释放，避免泄漏） */
+  private clearPathProps(): void {
+    for (const o of this.pathProps) {
+      this.root.remove(o);
+      o.traverse((child) => {
+        const m = child as THREE.Mesh;
+        if (m.geometry) m.geometry.dispose();
+      });
+    }
+    this.pathProps = [];
+  }
+
   private rebuildPaths(state: GameState): void {
+    this.clearPathProps();
     if (this.pathMesh) {
       this.root.remove(this.pathMesh);
       this.pathGeo?.dispose();
@@ -378,6 +396,89 @@ export class World {
     this.root.add(mesh);
     this.pathMesh = mesh;
     this.pathGeo = geo;
+
+    this.decorateAlongPaths(state, cells, lo, hi, blocked);
+  }
+
+  /**
+   * 沿街设施：花箱、长椅、木箱、路灯。
+   *
+   * 参考梦想城镇的画面构成：丰盛感不来自大建筑，而来自**沿街重复出现的小物件**。
+   * 这里只在路径外缘按固定节奏摆放，间距规则，才不会显得乱。
+   */
+  private decorateAlongPaths(
+    state: GameState,
+    cells: Set<string>,
+    lo: number,
+    hi: number,
+    blocked: Set<string>,
+  ): void {
+    if (this.lowSpec) return;
+
+    let i = 0;
+    for (const key of cells) {
+      const [gx, gz] = key.split(',').map(Number);
+      // 只在环路外缘摆，避免挡住农田与巷道
+      const onRing = (gx === lo || gx === hi || gz === lo || gz === hi);
+      if (!onRing) continue;
+      const corner = (gx === lo || gx === hi) && (gz === lo || gz === hi);
+      if (corner) continue; // 四角留给路灯
+      i += 1;
+      if (i % 2 !== 0) continue; // 隔一格放一个，节奏才稳
+
+      const c = cellToWorld(gx, gz);
+      // 往岛缘方向偏移，让出路面
+      const dx = gx === lo ? -1 : gx === hi ? 1 : 0;
+      const dz = gz === lo ? -1 : gz === hi ? 1 : 0;
+      const ox = c.x + dx * CELL * 0.52;
+      const oz = c.z + dz * CELL * 0.52;
+      // 偏移点若落在被占用格里就不摆（避免插进房子）
+      const nx = gx + dx;
+      const nz = gz + dz;
+      if (blocked.has(`${nx},${nz}`)) continue;
+
+      if (i % 6 === 2) {
+        const bench = makeParkBench(gx * 37 + gz * 11);
+        bench.position.set(ox, 0, oz);
+        bench.rotation.y = dx !== 0 ? Math.PI / 2 : 0;
+        this.root.add(bench);
+        this.pathProps.push(bench);
+        this.shadowAt(ox, oz, 0.5);
+      } else if (i % 6 === 4) {
+        const crates = makeCrateStack(gx * 53 + gz * 7);
+        crates.position.set(ox, 0, oz);
+        this.root.add(crates);
+        this.pathProps.push(crates);
+        this.shadowAt(ox, oz, 0.35);
+      } else {
+        const planter = makePlanter(gx * 29 + gz * 13);
+        planter.position.set(ox, 0, oz);
+        planter.rotation.y = dx !== 0 ? Math.PI / 2 : 0;
+        this.root.add(planter);
+        this.pathProps.push(planter);
+        this.shadowAt(ox, oz, 0.3);
+      }
+    }
+
+    // 四角路灯
+    for (const [gx, gz] of [[lo, lo], [hi, lo], [lo, hi], [hi, hi]] as [number, number][]) {
+      if (blocked.has(`${gx},${gz}`)) continue;
+      const c = cellToWorld(gx, gz);
+      const lamp = makeLamp();
+      lamp.position.set(c.x, 0, c.z);
+      lamp.rotation.y = Math.PI / 4;
+      this.root.add(lamp);
+      this.pathProps.push(lamp);
+      // 路灯要登记发光材质，夜里才会亮
+      lamp.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.name === LAMP_GLASS && m.material) {
+          this.lampLights.push(m.material as THREE.MeshStandardMaterial);
+        }
+      });
+      this.shadowAt(c.x, c.z, 0.4);
+    }
+    void state;
   }
 
   /** 重新烘焙地面遮蔽（建筑/工厂数量变化时调用） */

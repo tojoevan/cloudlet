@@ -264,3 +264,52 @@ export function makeHedge(len = 2.2): THREE.Group {
   g.add(top);
   return g;
 }
+
+/**
+ * 沿街花箱：木框 + 泥土 + 一小簇花。
+ * 只做 3 个网格（框、土、花团），是"沿街填满"最划算的单元——
+ * 梦想城镇那种丰盛感，很大比例来自这种重复出现的小物件。
+ */
+export function makePlanter(seed: number): THREE.Group {
+  const rng = mulberry32(seed);
+  const g = new THREE.Group();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.26, 0.34), mat(WOOD));
+  box.position.y = 0.13;
+  box.castShadow = true;
+  box.receiveShadow = true;
+  g.add(box);
+  const soil = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.04, 0.26), mat(getPalette().tilled));
+  soil.position.y = 0.27;
+  g.add(soil);
+  // 花用 4 朵小花而不是一大坨：小尺寸的花点才像"花箱"，大色块会读成彩色方块
+  const colors = [0xf0687a, 0xffd45e, 0xc48ae0, 0xffffff, 0xf79a48];
+  for (let i = 0; i < 4; i++) {
+    const bloom = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.055 + rng() * 0.02, 0),
+      mat(colors[Math.floor(rng() * colors.length)]),
+    );
+    bloom.position.set(-0.16 + i * 0.1, 0.32 + rng() * 0.04, (rng() - 0.5) * 0.16);
+    g.add(bloom);
+  }
+  // 一点绿叶垫底
+  const leaves = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.04, 0.22), mat(getPalette().leafDeep));
+  leaves.position.y = 0.29;
+  g.add(leaves);
+  return g;
+}
+
+/** 一组木箱/木桶，堆在路边像刚卸下的货 */
+export function makeCrateStack(seed: number): THREE.Group {
+  const rng = mulberry32(seed);
+  const g = new THREE.Group();
+  const n = 2 + Math.floor(rng() * 2);
+  for (let i = 0; i < n; i++) {
+    const s = 0.18 + rng() * 0.08;
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), mat(rng() > 0.5 ? WOOD : WOOD_DARK));
+    crate.position.set((rng() - 0.5) * 0.3, s / 2 + (i === 2 ? 0.04 : 0), (rng() - 0.5) * 0.3);
+    crate.rotation.y = rng() * 0.6;
+    crate.castShadow = true;
+    g.add(crate);
+  }
+  return g;
+}
