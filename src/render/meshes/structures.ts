@@ -438,6 +438,87 @@ export function makeBuilding(
     g.scale.setScalar(1 + (level - 1) * 0.12);
     return { group: g, lights: [] };
   }
+  // 季节限定装饰：四种造型，各有鲜明的轮廓
+  if (type === 'sakura' || type === 'sunflower' || type === 'scarecrow' || type === 'snowman') {
+    const g = new THREE.Group();
+    const rng2 = mulberry32(seed);
+    if (type === 'sakura') {
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, 0.62, 6), mat(def.body));
+      trunk.position.y = 0.31;
+      trunk.castShadow = true;
+      g.add(trunk);
+      for (let i = 0; i < 4; i++) {
+        const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(0.2 + rng2() * 0.08, 0), mat(def.roof));
+        blob.position.set((rng2() - 0.5) * 0.42, 0.66 + rng2() * 0.22, (rng2() - 0.5) * 0.42);
+        blob.castShadow = true;
+        g.add(blob);
+      }
+      // 地上的落花
+      for (let i = 0; i < 5; i++) {
+        const petal = new THREE.Mesh(new THREE.IcosahedronGeometry(0.05, 0), mat(def.accent));
+        petal.scale.set(1, 0.35, 1);
+        petal.position.set((rng2() - 0.5) * 0.6, 0.03, (rng2() - 0.5) * 0.6);
+        g.add(petal);
+      }
+    } else if (type === 'sunflower') {
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.8, 5), mat(def.body));
+      stem.position.y = 0.4;
+      stem.castShadow = true;
+      g.add(stem);
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 10), mat(def.roof));
+      disc.rotation.x = Math.PI / 2 - 0.25;
+      disc.position.set(0, 0.82, 0.02);
+      disc.castShadow = true;
+      g.add(disc);
+      const center = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.06, 8), mat(def.accent));
+      center.rotation.x = Math.PI / 2 - 0.25;
+      center.position.set(0, 0.83, 0.05);
+      g.add(center);
+    } else if (type === 'scarecrow') {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.0, 0.08), mat(def.roof));
+      post.position.y = 0.5;
+      post.castShadow = true;
+      g.add(post);
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.07, 0.07), mat(def.roof));
+      bar.position.y = 0.72;
+      g.add(bar);
+      const body2 = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.5, 6), mat(def.body));
+      body2.position.y = 0.56;
+      body2.castShadow = true;
+      g.add(body2);
+      const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.14, 0), mat(0xe8d5a8));
+      head.position.y = 0.95;
+      g.add(head);
+      const hat = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.16, 6), mat(def.accent));
+      hat.position.y = 1.08;
+      g.add(hat);
+    } else {
+      // 雪人：两个雪球 + 胡萝卜鼻 + 帽子
+      const bottom = new THREE.Mesh(new THREE.IcosahedronGeometry(0.26, 0), mat(def.body));
+      bottom.position.y = 0.24;
+      bottom.castShadow = true;
+      g.add(bottom);
+      const top = new THREE.Mesh(new THREE.IcosahedronGeometry(0.18, 0), mat(def.body));
+      top.position.y = 0.56;
+      top.castShadow = true;
+      g.add(top);
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.18, 5), mat(def.accent));
+      nose.rotation.x = Math.PI / 2;
+      nose.position.set(0, 0.56, 0.16);
+      g.add(nose);
+      const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.03, 8), mat(def.roof));
+      brim.position.y = 0.7;
+      g.add(brim);
+      const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.13, 0.16, 8), mat(def.roof));
+      crown.position.y = 0.79;
+      g.add(crown);
+    }
+    bakeStatic(g);
+    if (fit) fitToCell(g, w, h);
+    g.userData.lights = [];
+    return { group: g, lights: [] };
+  }
+
   // 纯装饰：直接复用街道道具的造型，缩放交给 fitToCell
   if (type === 'bench' || type === 'lamp' || type === 'planter' || type === 'statue') {
     const g = new THREE.Group();

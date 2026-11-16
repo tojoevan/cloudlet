@@ -7,6 +7,7 @@ import { FOCUS_MULT, isFocusing } from './focus';
 import { activeIslandMeta } from './island';
 import { cropSpeed, productSpeed } from './islandBonus';
 import { collectionCropSpeed, collectionProductSpeed } from './collection';
+import { seasonCropSpeed } from './season';
 import { canPlace, expandDir, firstFreeCell } from './grid';
 import type {
   BuildingType,
@@ -43,7 +44,8 @@ export function plant(state: GameState, plotId: number, crop: CropId, now: numbe
   plot.crop = crop;
   plot.plantedAt = now;
   // 岛屿加成：果园岛的水果类作物长得更快
-  const speed = cropSpeed(state, crop) * collectionCropSpeed(state);
+  // 岛屿加成 × 收集奖励 × 当季加成
+  const speed = cropSpeed(state, crop) * collectionCropSpeed(state) * seasonCropSpeed(crop);
   plot.readyAt = now + Math.round(CROPS[crop].growMs / speed);
   state.lastCrop = crop;
   return { ok: true, data: undefined };

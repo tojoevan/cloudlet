@@ -39,7 +39,11 @@ import { createInitialState } from '../src/core/state';
 import { deliverWish } from '../src/core/wishes';
 import { switchIsland } from '../src/core/island';
 import { CROP_ORDER } from '../src/data/crops';
+import { BUILDING_ORDER } from '../src/data/buildings';
+import { FACTORY_ORDER, PRODUCTS } from '../src/data/factories';
 import { ACHIEVEMENTS } from '../src/core/achievements';
+import { codexTotal } from '../src/core/codex';
+import { seasonOf, SEASONS, setSeasonOverride, decoAvailableIn } from '../src/core/season';
 import type { GameState } from '../src/core/types';
 
 let pass = 0;
@@ -253,7 +257,12 @@ recordProduct(cx, 'bread');
 recordBuilding(cx, 'house');
 recordFactory(cx, 'bakery');
 check('四类分别计入', codexFound(cx) === 4, `实际 ${codexFound(cx)}`);
-check('总数 = 6 作物 + 5 加工品 + 4 建筑 + 5 工厂', codexTotal() === 20, `实际 ${codexTotal()}`);
+check(
+  '图鉴总数 = 各类合计',
+  codexTotal() ===
+    CROP_ORDER.length + Object.keys(PRODUCTS).length + BUILDING_ORDER.length + FACTORY_ORDER.length,
+  `实际 ${codexTotal()}`,
+);
 
 section('成就');
 const ac: GameState = createInitialState('device-ach');
@@ -374,6 +383,7 @@ section('岛屿解锁');
 
 section('岛屿加成');
 {
+  setSeasonOverride('summer'); // 夏天对小麦无加成，断言才可复现
   const b = createInitialState('bonus-test');
   b.level = 12; // 草莓需要 10 级
   const t = Date.now();
@@ -391,10 +401,12 @@ section('岛屿加成');
   plant(b, 1, 'wheat', t);
   const wheatBoosted = b.plots[1].readyAt - t;
   check('小麦不受果园加成影响', wheatBoosted === 30_000, String(wheatBoosted));
+  setSeasonOverride(null);
 }
 
 section('收集奖励');
 {
+  setSeasonOverride('summer');
   const c = createInitialState('collection-test');
   c.level = 12;
   const t = Date.now();
@@ -408,6 +420,7 @@ section('收集奖励');
   const boosted = c.plots[1].readyAt - t;
   check('集齐作物后更快', boosted < normal, `${boosted} vs ${normal}`);
   check('约快 10%', Math.abs(boosted - Math.round(normal / 1.1)) <= 2, String(boosted));
+  setSeasonOverride(null);
 }
 
 section('成就目标墙');
@@ -421,6 +434,18 @@ section('成就目标墙');
   check('新档进度从 0 开始', p0.cur === 0 && p0.target === 1, `${p0.cur}/${p0.target}`);
   a.stats.harvests = 42;
   check('进度随统计增长', first.progress!(a).cur === 42, String(first.progress!(a).cur));
+}
+
+section('季节');
+{
+  check('3 月是春天', seasonOf(new Date(2026, 2, 15)) === 'spring');
+  check('7 月是夏天', seasonOf(new Date(2026, 6, 15)) === 'summer');
+  check('10 月是秋天', seasonOf(new Date(2026, 9, 15)) === 'autumn');
+  check('1 月是冬天', seasonOf(new Date(2026, 0, 15)) === 'winter');
+  const allHaveDeco = Object.values(SEASONS).every((x) => !!x.deco && x.crops.length > 0);
+  check('每季都有专属装饰与加成作物', allHaveDeco);
+  check('稻草人只在秋天可建', decoAvailableIn('scarecrow', 'autumn') && !decoAvailableIn('scarecrow', 'spring'));
+  check('普通装饰常年可建', decoAvailableIn('bench', 'spring') && decoAvailableIn('bench', 'winter'));
 }
 
 console.log(`\n${pass} 通过，${fail} 失败\n`);

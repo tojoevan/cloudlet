@@ -3,6 +3,7 @@ import { codexFound, codexTotal } from '../core/codex';
 import { itemName, itemPrice, populationOf, SELL_RATE } from '../core/economy';
 import { prosperityOf } from '../core/economy';
 import { ISLAND_BONUS } from '../core/islandBonus';
+import { currentSeason, decoAvailableIn } from '../core/season';
 import { COLLECTION_SETS } from '../core/collection';
 import { FOCUS_PRESETS, focusRemainMs, isFocusing } from '../core/focus';
 import type { BuildingType, CropId, FactoryType, GameState, ItemId, Settings } from '../core/types';
@@ -224,11 +225,16 @@ export function openBuildPanel(
   }
 
   body.appendChild(el('p', 'hint', '社区建筑'));
+  const season = currentSeason();
+  body.appendChild(el('p', 'hint', `当前 ${season.name}季 · ${season.note}`));
   const grid = el('div', 'grid');
+  // 季节限定装饰只在当季出现，其余季节从列表里隐藏
+  const availableBuilding = (t: string) => decoAvailableIn(t, season.id);
   // 装饰单独一组：它们是"把镇子摆好看"的入口，不该和功能建筑混在一起
   const decoGrid = el('div', 'grid');
   const decoSet = new Set<string>(DECO_TYPES);
   for (const t of BUILDING_ORDER) {
+    if (!availableBuilding(t)) continue;
     const def = BUILDINGS[t];
     const owned = state.buildings.filter((b) => b.type === t).length;
     const cost = Math.floor(def.cost * Math.pow(def.costGrowth, owned));

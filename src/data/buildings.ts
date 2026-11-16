@@ -98,6 +98,30 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     body: 0xe8e4d8, roof: 0xcdd9e2, accent: 0xd9b45a,
     desc: '镇子的精神地标',
   },
+  sakura: {
+    id: 'sakura', name: '樱花树', cost: 320, costGrowth: 1.1,
+    pop: 0, prosperity: 3, reqPop: 0, unlockLevel: 3, deco: true,
+    body: 0x8a6a52, roof: 0xf7c6d8, accent: 0xffe6ef,
+    desc: '春天限定 · 花瓣会落',
+  },
+  sunflower: {
+    id: 'sunflower', name: '向日葵', cost: 260, costGrowth: 1.1,
+    pop: 0, prosperity: 2, reqPop: 0, unlockLevel: 3, deco: true,
+    body: 0x7cb85f, roof: 0xffc233, accent: 0x8a5a3b,
+    desc: '夏天限定 · 朝着太阳',
+  },
+  scarecrow: {
+    id: 'scarecrow', name: '稻草人', cost: 300, costGrowth: 1.1,
+    pop: 0, prosperity: 3, reqPop: 0, unlockLevel: 3, deco: true,
+    body: 0xc9a06a, roof: 0x8a5a3b, accent: 0xf0687a,
+    desc: '秋天限定 · 守着南瓜地',
+  },
+  snowman: {
+    id: 'snowman', name: '雪人', cost: 280, costGrowth: 1.1,
+    pop: 0, prosperity: 3, reqPop: 0, unlockLevel: 3, deco: true,
+    body: 0xffffff, roof: 0x5b6b7b, accent: 0xf08a3c,
+    desc: '冬天限定 · 别让它化掉',
+  },
   hall: {
     id: 'hall', name: '市政厅', cost: 40_000, costGrowth: 1.26,
     pop: 0, prosperity: 22, reqPop: 110, unlockLevel: 20,
@@ -109,11 +133,23 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
 export const BUILDING_ORDER: BuildingType[] = [
   'house', 'cafe', 'park', 'fountain', 'post', 'garden', 'flower', 'school', 'hall',
   'bench', 'lamp', 'planter', 'statue',
+  'sakura', 'sunflower', 'scarecrow', 'snowman',
   'road',
 ];
 
 /** 纯装饰：建造面板里单独分组，避免和功能建筑混在一起 */
-export const DECO_TYPES: BuildingType[] = ['bench', 'lamp', 'planter', 'statue'];
+export const DECO_TYPES: BuildingType[] = [
+  'bench', 'lamp', 'planter', 'statue',
+  'sakura', 'sunflower', 'scarecrow', 'snowman',
+];
+
+/** 季节限定装饰：只有在对应季节才出现在建造面板里 */
+export const SEASONAL_DECO: Record<string, BuildingType> = {
+  spring: 'sakura',
+  summer: 'sunflower',
+  autumn: 'scarecrow',
+  winter: 'snowman',
+};
 
 /** 方岛网格占地（单位：格）。住宅基础 1×1，可升级成 1×2 / 2×1；
  *  咖啡馆/公园/喷泉为 2×2 的点缀型；道路 1×1 可拼接。 */
@@ -131,6 +167,10 @@ export const BUILDING_FOOTPRINT: Record<BuildingType, { w: number; h: number }> 
   lamp: { w: 1, h: 1 },
   planter: { w: 1, h: 1 },
   statue: { w: 1, h: 1 },
+  sakura: { w: 1, h: 1 },
+  sunflower: { w: 1, h: 1 },
+  scarecrow: { w: 1, h: 1 },
+  snowman: { w: 1, h: 1 },
   road: { w: 1, h: 1 },
 };
 
