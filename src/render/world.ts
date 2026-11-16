@@ -151,6 +151,8 @@ export class World {
   private occluders: AoCaster[] = [];
   /** 建筑数量签名：变了才重新烘焙，避免每帧重算 */
   private aoSig = '';
+  /** 目的地签名：建筑/工厂变化时重算居民去处 */
+  private spotsSig = '';
   /** 自动小径（把散落的建筑串成街区） */
   private pathMesh: THREE.Mesh | null = null;
   /** 沿街设施：重建路径时要先清掉旧的，否则每加一栋房子就会重复叠一层 */
@@ -479,6 +481,52 @@ export class World {
       this.shadowAt(c.x, c.z, 0.4);
     }
     void state;
+  }
+
+  /**
+   * 重算居民的去处：家（住宅）、广场（池畔或农田环路）、农田、工厂。
+   * 有了去处，居民的行为才从「随机漫步」变成「上班/回家/逛广场」。
+   */
+  private rebuildSpots(state: GameState): void {
+    const spots: { kind: 'home' | 'plaza' | 'farm' | 'factory'; x: number; z: number }[] = [];
+    const onSquare = this.islandShape === 'square';
+
+    state.buildings.forEach((b, i) => {
+      if (b.type !== 'house') return;
+      if (onSquare) {
+        if (b.gx == null || b.gz == null) return;
+        const c = footprintCenter(b.gx, b.gz, b.w ?? 1, b.h ?? 1);
+        spots.push({ kind: 'home', x: c.x, z: c.z });
+      } else {
+        const p = buildingPos(i);
+        spots.push({ kind: 'home', x: p.x, z: p.z });
+      }
+    });
+
+    if (!onSquare) {
+      spots.push({ kind: 'plaza', x: POND.x, z: POND.y });
+    } else {
+      const start = Math.floor((SQUARE_N - 4) / 2);
+      const lo = start - 1;
+      const hi = start + 4;
+      for (const [gx, gz] of [[lo, lo], [hi, lo], [lo, hi], [hi, hi]] as [number, number][]) {
+        const c = cellToWorld(gx, gz);
+        spots.push({ kind: 'plaza', x: c.x, z: c.z });
+      }
+    }
+
+    // 农田：每 4 块取一个点，避免所有居民挤在同一垄上
+    for (let i = 0; i < state.plots.length; i += 4) {
+      const p = plotPosition(i, this.islandShape);
+      spots.push({ kind: 'farm', x: p.x, z: p.z });
+    }
+
+    state.factories.forEach((f, i) => {
+      const p = this.factoryWorldPos(f, i, state);
+      spots.push({ kind: 'factory', x: p.x, z: p.z });
+    });
+
+    this.agents.setSpots(spots);
   }
 
   /** 重新烘焙地面遮蔽（建筑/工厂数量变化时调用） */
@@ -848,6 +896,10 @@ export class World {
 
     // 建筑/工厂数量变化才重烘：装饰在建场时已登记完，之后只需补建筑
     const sig = `${state.buildings.length}:${state.factories.length}`;
+    if (sig !== this.spotsSig) {
+      this.spotsSig = sig;
+      this.rebuildSpots(state);
+    }
     if (sig !== this.aoSig) {
       this.aoSig = sig;
       this.rebakeAO();
@@ -1331,6 +1383,8 @@ export class World {
 
   /** 昼夜：夜间点亮窗户、压暗环境光 */
   applyTimeOfDay(isNight: boolean): void {
+    // 夜里居民往家走，白天出门——换班时立刻重选目标
+    this.agents.setNight(isNight);
     const intensity = isNight ? 1.15 : 0;
     for (const m of this.windowLights) {
       m.emissive = new THREE.Color(0xffd98a);

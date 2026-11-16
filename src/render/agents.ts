@@ -135,6 +135,13 @@ function makeWorker(kind: 'lumber' | 'ranch', seed: number): THREE.Group {
  * 居民在岛上闲逛。纯视觉层，不参与任何玩法计算——
  * 作用是让静止的画面有呼吸感，挂机时像个活着的小镇。
  */
+/** 居民会去的地方：家 / 广场 / 农田 / 工厂 */
+export interface AgentSpot {
+  kind: 'home' | 'plaza' | 'farm' | 'factory';
+  x: number;
+  z: number;
+}
+
 export class Agents {
   readonly root = new THREE.Group();
   private people: Person[] = [];
@@ -146,12 +153,40 @@ export class Agents {
   private shape: 'round' | 'square' = 'round';
   private squareHalf = 7.6;
   private roadCells: { gx: number; gz: number }[] = [];
+  /** 目的地池：让居民有去处，而不是纯随机漫步 */
+  private spots: AgentSpot[] = [];
+  private night = false;
 
   /** 切换岛屿时由 World 调用，告知居民新的活动范围与道路网格 */
   configure(shape: 'round' | 'square', half: number, roadCells: { gx: number; gz: number }[]): void {
     this.shape = shape;
     this.squareHalf = half;
     this.roadCells = roadCells;
+  }
+
+  /**
+   * 设置目的地池。World 在建筑/工厂/广场变化时调用。
+   * 居民的行为因此从「随机漫步」变成「有去处」——这是小镇看起来"活的"的关键。
+   */
+  setSpots(spots: AgentSpot[]): void {
+    this.spots = spots;
+  }
+
+  /** 昼夜换班：夜里往家走，白天出门 */
+  setNight(night: boolean): void {
+    if (night === this.night) return;
+    this.night = night;
+    for (const p of this.people) this.newTarget(p);
+  }
+
+  /** 按昼夜挑一个偏好目的地 */
+  private pickSpot(): AgentSpot | null {
+    if (this.spots.length === 0) return null;
+    const pref = this.night
+      ? this.spots.filter((s) => s.kind === 'home')
+      : this.spots.filter((s) => s.kind !== 'home');
+    const pool = pref.length > 0 ? pref : this.spots;
+    return pool[Math.floor(Math.random() * pool.length)];
   }
 
   /** 射线检测用。居民在移动，所以每次取都要现算 */
@@ -303,6 +338,16 @@ export class Agents {
   }
 
   private newTarget(p: Person, rng: () => number = Math.random): void {
+    // 有目的地就去目的地附近（带一点随机偏移，避免所有人叠在同一个点）
+    const spot = this.pickSpot();
+    if (spot) {
+      p.target.set(spot.x + (rng() - 0.5) * 0.9, spot.z + (rng() - 0.5) * 0.9);
+      p.speed = range(rng, 0.32, 0.62);
+      // 到了目的地会多停一会儿：像真的在办事/聊天
+      p.pauseFor = rng() < 0.55 ? range(rng, 1.6, 5.5) : 0;
+      this.faceTarget(p);
+      return;
+    }
     if (this.shape === 'square') {
       let x: number;
       let z: number;
