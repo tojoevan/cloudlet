@@ -717,14 +717,14 @@ export function makeGroundOverlay(
  * 比在草地上撒道具更能立刻读出"这里是个广场"。
  */
 export function makePlaza(radius: number, segs = 40): THREE.Mesh {
-  const geo = makeGroundOverlay('round', radius, 0, segs, getPalette().path);
+  const geo = makeGroundOverlay('round', radius, 0, segs, 0xf3ebd8);
   // 环状铺装带：按半径分圈，隔圈略压暗，远看就是石砖的同心纹路
   const pos = geo.attributes.position;
   const col = geo.attributes.color;
   for (let i = 0; i < pos.count; i++) {
     const r = Math.hypot(pos.getX(i), pos.getZ(i)) / radius;
     const band = Math.floor(r * 4.5);
-    const k = band % 2 === 0 ? 1 : 0.94;
+    const k = band % 2 === 0 ? 1 : 0.975;
     col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
   }
   col.needsUpdate = true;

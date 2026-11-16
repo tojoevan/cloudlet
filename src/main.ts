@@ -141,6 +141,8 @@ const hud = new HUD(
 const board = new OrderBoard();
 // 订单面板挂到顶部栏「会员等级」芯片之后，随顶栏流式排布，不再悬浮遮挡画面
 hud.el.appendChild(board.el);
+// 手机上默认收起订单面板：三张卡会盖住半个岛屿，点标题头随时展开
+if (window.innerWidth <= 560) board.el.classList.add('collapsed');
 
 // 番茄钟进度条贴在屏幕最上沿，专注时才出现
 const focusBar = el('div', 'focusbar');

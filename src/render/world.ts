@@ -536,11 +536,11 @@ export class World {
 
     // 镇中心广场：把池塘围成硬质铺装的场域，长椅/路灯/花坛沿环排布。
     // 这是"梦想城镇"式画面上最关键的场域线索——有广场才有"镇"。
-    const plazaR = 3.1;
+    const plazaR = 2.65;
     const plaza = makePlaza(plazaR);
     plaza.position.set(POND.x, 0.008, POND.y);
     this.root.add(plaza);
-    const ring = plazaR - 0.55;
+    const ring = plazaR - 0.45;
     // 四张长椅朝内，四个路灯在斜角，花坛填空档
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
