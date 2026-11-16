@@ -5,6 +5,7 @@ import { CELL } from '../../core/island';
 import type { BuildingType, FactoryType } from '../../core/types';
 import { mat, matOwn } from '../mat';
 import { getPalette, getHouses } from '../palette';
+import { bakeStatic } from '../bake';
 import { makeFlowerBed, makeMailbox } from './props';
 import { mulberry32, range } from '../rng';
 import { makeTree } from './terrain';
@@ -93,6 +94,7 @@ export function makeHouse(
       const wx = (i - (winCount - 1) / 2) * 0.42;
       const win = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.22, 0.06), winMat);
       win.position.set(wx, winY, d / 2 + 0.02);
+      win.userData.noBake = true; // 窗户要单独做昼夜发光
       g.add(win);
       // 窗台花箱：一点点暖色，是"有人住"的关键细节
       const box = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.07, 0.1), mat(p.roof));
@@ -107,6 +109,7 @@ export function makeHouse(
     }
     const side = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.22, 0.22), winMat);
     side.position.set(w / 2 + 0.02, winY, 0);
+    side.userData.noBake = true;
     g.add(side);
 
     // 门只在底层，配一个出挑的小雨棚——正面立刻有"入口"这个视觉重点
@@ -200,6 +203,7 @@ export function makeHouse(
     g.add(dormer);
     const dWin = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.04), winMat);
     dWin.position.set(w * 0.18, topY + rh * 0.45, d / 2 + 0.05);
+    dWin.userData.noBake = true;
     g.add(dWin);
   }
 
@@ -210,6 +214,8 @@ export function makeHouse(
     g.add(ch);
   }
 
+  // 墙体/屋顶/窗台等静止件合并成 1 个网格，窗户保持独立
+  bakeStatic(g);
   g.userData.lights = lights;
   return { group: g, lights };
 }
@@ -373,6 +379,7 @@ export function makeParkBench(seed: number): THREE.Group {
     g.add(leg);
   }
   g.rotation.y = range(rng, 0, Math.PI * 2);
+  bakeStatic(g);
   return g;
 }
 

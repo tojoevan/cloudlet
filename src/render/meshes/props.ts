@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { mat, matOwn } from '../mat';
+import { bakeStatic } from '../bake';
 import { getPalette } from '../palette';
 import { mulberry32 } from '../rng';
 
@@ -32,6 +33,7 @@ export function makeFence(len = 1.15): THREE.Group {
     r.castShadow = true;
     g.add(r);
   }
+  bakeStatic(g);
   return g;
 }
 
@@ -70,6 +72,7 @@ export function makeFenceLine(len: number): THREE.Group {
     m.castShadow = true;
     g.add(m);
   }
+  bakeStatic(g);
   return g;
 }
 
@@ -93,6 +96,7 @@ export function makeLamp(): THREE.Group {
   const cap = new THREE.Mesh(new THREE.ConeGeometry(0.10, 0.07, 6), mat(0x5b6b7b));
   cap.position.set(0.19, 0.985, 0);
   g.add(cap);
+  bakeStatic(g);
   return g;
 }
 
@@ -119,6 +123,7 @@ export function makeFlowerBed(seed: number): THREE.Group {
     bloom.position.set(Math.cos(a) * r, 0.19 + rng() * 0.04, Math.sin(a) * r);
     g.add(bloom);
   }
+  bakeStatic(g);
   return g;
 }
 
@@ -136,6 +141,7 @@ export function makeMailbox(): THREE.Group {
   const flag = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.09, 0.06), mat(0xf5e8b8));
   flag.position.set(0.02, 0.60, 0.09);
   g.add(flag);
+  bakeStatic(g);
   return g;
 }
 
@@ -164,6 +170,7 @@ export function makeWell(): THREE.Group {
   roof.rotation.y = Math.PI / 4;
   roof.castShadow = true;
   g.add(roof);
+  bakeStatic(g);
   return g;
 }
 
@@ -183,6 +190,7 @@ export function makeBarrels(seed: number): THREE.Group {
     hoop.position.y = 0.22;
     g.add(hoop);
   }
+  bakeStatic(g);
   return g;
 }
 
@@ -199,6 +207,7 @@ export function makeSignpost(): THREE.Group {
   const b2 = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.09, 0.03), mat(0xd9a86c));
   b2.position.set(-0.09, 0.56, 0.02);
   g.add(b2);
+  bakeStatic(g);
   return g;
 }
 
@@ -248,6 +257,7 @@ export function makeStall(seed: number): THREE.Group {
     crate.position.set(-0.2 + rng() * 0.4, 0.39, (rng() - 0.5) * 0.2);
     g.add(crate);
   }
+  bakeStatic(g);
   return g;
 }
 
@@ -262,6 +272,7 @@ export function makeHedge(len = 2.2): THREE.Group {
   const top = new THREE.Mesh(new THREE.BoxGeometry(len * 0.96, 0.12, 0.2), mat(getPalette().leafGreen));
   top.position.y = 0.36;
   g.add(top);
+  bakeStatic(g);
   return g;
 }
 
@@ -295,6 +306,7 @@ export function makePlanter(seed: number): THREE.Group {
   const leaves = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.04, 0.22), mat(getPalette().leafDeep));
   leaves.position.y = 0.29;
   g.add(leaves);
+  bakeStatic(g);
   return g;
 }
 
@@ -311,5 +323,6 @@ export function makeCrateStack(seed: number): THREE.Group {
     crate.castShadow = true;
     g.add(crate);
   }
+  bakeStatic(g);
   return g;
 }

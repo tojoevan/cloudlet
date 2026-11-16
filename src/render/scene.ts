@@ -886,18 +886,29 @@ export class SceneView {
   }
 
   render(): void {
+    let info: THREE.WebGLInfo;
     if (this.tiltOn && this.rt && this.postMat) {
       this.syncPostSize();
       const prev = this.renderer.getRenderTarget();
       this.renderer.setRenderTarget(this.rt);
       this.renderer.render(this.scene, this.camera);
+      // 必须在后处理之前抓统计：后处理那趟只有 1 个 quad，
+      // 会把 autoReset 后的真实数值覆盖成 calls=1 / tris=2。
+      info = this.renderer.info;
+      const snapshot = {
+        calls: info.render.calls,
+        triangles: info.render.triangles,
+        geometries: info.memory.geometries,
+        textures: info.memory.textures,
+      };
       this.renderer.setRenderTarget(prev);
       this.renderer.render(this.postScene, this.postCam);
-    } else {
-      this.renderer.render(this.scene, this.camera);
+      this.perf = { ...snapshot, jsHeap: this.perf.jsHeap };
+      return;
     }
+    this.renderer.render(this.scene, this.camera);
     // 绘制后立刻抓 renderer.info：autoReset 默认开启，统计的就是本帧数据
-    const info = this.renderer.info;
+    info = this.renderer.info;
     const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
     this.perf = {
       calls: info.render.calls,

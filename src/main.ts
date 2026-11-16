@@ -253,8 +253,10 @@ function openSettings(): void {
     onQuality: (q) => {
       state.settings.quality = q;
       view.setQuality(q);
-      // 画质切换时同步移轴开关（低画质/省电不跑后处理）
-      view.setTilt(q !== 'low' && !state.settings.powerSave);
+      // 画质切换时同步移轴与天气：低画质不跑全屏后处理，也不跑天气粒子
+      const lowEnd = q === 'low' || state.settings.powerSave;
+      view.setTilt(!lowEnd);
+      if (lowEnd) view.setWeather('clear');
     },
     onColorScheme: (id) => {
       state.settings.colorScheme = id;
@@ -1181,6 +1183,8 @@ function applyWeather(kind: WeatherKind, announce: boolean): void {
   if (announce) toast(WEATHER_NAMES[kind]);
 }
 setInterval(() => {
+  // 低画质/省电模式下不跑天气粒子，省掉每帧几百个点的更新
+  if (state.settings.quality === 'low' || state.settings.powerSave) return;
   const next = pickWeather();
   if (next === weatherNow) return;
   applyWeather(next, true);
@@ -1412,7 +1416,9 @@ checkAchievements(state);
 dirty = false;
 view.setQuality(state.settings.quality);
 // 低画质或省电模式关掉移轴后处理，省一次全屏 pass
-view.setTilt(state.settings.quality !== 'low' && !state.settings.powerSave);
+const lowEndInit = state.settings.quality === 'low' || state.settings.powerSave;
+view.setTilt(!lowEndInit);
+if (lowEndInit) view.setWeather('clear');
 view.setPowerSave(state.settings.powerSave);
 // 注意：这里不要再手动 view.setSky(isNight())——时段光色已由 syncTimeOfDay 统一负责，
 // 用真实时钟覆盖会把 ?hour= 预览和凌晨启动的配色一起打回夜间。

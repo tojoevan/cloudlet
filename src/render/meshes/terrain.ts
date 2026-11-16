@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mat, matOwn, matVC, tintGradient } from '../mat';
+import { bakeStatic } from '../bake';
 import { ISLAND_RADIUS, getPalette } from '../palette';
 import { CELL, SQUARE_N } from '../../core/island';
 import type { IslandShape } from '../../core/types';
@@ -313,6 +314,8 @@ export function makeTree(seed: number, kind?: TreeKind): THREE.Group {
     }
   }
 
+  // 树干 + 树冠合并成 1 个网格（顶点色保留深浅），单棵树从 5~8 次绘制降到 1 次
+  bakeStatic(g);
   g.scale.setScalar(scale);
   return g;
 }
@@ -329,6 +332,7 @@ export function makeRock(seed: number): THREE.Group {
   rock.position.y = s * 0.55;
   rock.castShadow = true;
   g.add(rock);
+  bakeStatic(g);
   return g;
 }
 
@@ -343,6 +347,7 @@ export function makeGrassTuft(seed: number): THREE.Group {
     blade.rotation.z = range(rng, -0.25, 0.25);
     g.add(blade);
   }
+  bakeStatic(g);
   return g;
 }
 
@@ -504,6 +509,7 @@ export function makeCloud(seed: number): THREE.Group {
     g.add(puff);
   }
   g.scale.setScalar(range(rng, 0.8, 1.4));
+  bakeStatic(g);
   return g;
 }
 
@@ -615,6 +621,7 @@ export function makeFlowerCluster(seed: number): THREE.Group {
     bloom.position.set(x, h, z);
     g.add(bloom);
   }
+  bakeStatic(g);
   return g;
 }
 
