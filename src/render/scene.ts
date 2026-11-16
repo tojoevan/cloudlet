@@ -317,6 +317,11 @@ export class SceneView {
           // 轻微提饱和：低多边形画面容易发灰
           float l = dot(c, vec3(0.299, 0.587, 0.114));
           c = mix(vec3(l), c, uSat);
+          // 分离色调：暗部往冷蓝压、亮部往暖黄提。
+          // 这是影视调色的经典手法，能给"平涂低多边形"补上一层统一的调子。
+          vec3 shadowTint = vec3(0.93, 0.97, 1.07);
+          vec3 highTint = vec3(1.06, 1.015, 0.95);
+          c *= mix(shadowTint, highTint, smoothstep(0.22, 0.86, l));
           // 极轻暗角
           vec2 p = vUv - 0.5;
           c *= 1.0 - dot(p, p) * 0.22;
@@ -397,8 +402,9 @@ export class SceneView {
       this.sun.color.copy(new THREE.Color(0xfff8ec).lerp(tint, k * 0.8));
       this.hemi.color.set(0xeef6ff);
       this.hemi.groundColor.set(0xd6f0c8);
-      this.fill.color.set(0xdcefff);
-      this.fill.intensity = light.fill * hemi * 0.8;
+      // 白天补光偏暖、从背侧打，相当于给低多边形加一道暖轮廓光
+      this.fill.color.set(0xffe6c4);
+      this.fill.intensity = light.fill * hemi * 1.15;
     }
     this.sun.intensity = light.sun * sun;
     this.hemi.intensity = light.hemi * hemi;

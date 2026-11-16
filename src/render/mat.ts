@@ -38,3 +38,53 @@ export function matOwn(
     ...opts,
   });
 }
+
+/**
+ * 顶点色材质（共享一份）。
+ *
+ * 借鉴 Dorfromantik 的做法：低多边形不靠贴图，而靠**顶点色渐变**建立体积与手绘感
+ * （见 80.lv 对 Dorfromantik 的访谈：custom vertex color pipelines）。
+ * 材质底色必须是白色——顶点色会与材质色相乘，底色带颜色就会整体发暗。
+ */
+let vcMat: THREE.MeshStandardMaterial | null = null;
+export function matVC(): THREE.MeshStandardMaterial {
+  if (!vcMat) {
+    vcMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      flatShading: true,
+      roughness: 0.92,
+      metalness: 0,
+    });
+  }
+  return vcMat;
+}
+
+/**
+ * 给几何体刷「下深上浅」的顶点色渐变。
+ * 这是让树冠、灌木、作物一眼看起来"有光从上面来"的最便宜手段，
+ * 纯色低多边形会显得像塑料块。
+ */
+export function tintGradient(
+  geo: THREE.BufferGeometry,
+  color: number,
+  lo = 0.84,
+  hi = 1.14,
+): void {
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  if (!bb) return;
+  const span = Math.max(0.001, bb.max.y - bb.min.y);
+  const base = new THREE.Color(color);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const t = Math.min(1, Math.max(0, (pos.getY(i) - bb.min.y) / span));
+    // 轻微非线性：底部压得更深一点，像被草丛遮住的环境光
+    const k = lo + (hi - lo) * Math.pow(t, 0.8);
+    colors[i * 3] = base.r * k;
+    colors[i * 3 + 1] = base.g * k;
+    colors[i * 3 + 2] = base.b * k;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}

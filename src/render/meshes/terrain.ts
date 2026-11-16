@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { mat, matOwn } from '../mat';
+import { mat, matOwn, matVC, tintGradient } from '../mat';
 import { ISLAND_RADIUS, getPalette } from '../palette';
 import { CELL, SQUARE_N } from '../../core/island';
 import type { IslandShape } from '../../core/types';
@@ -275,7 +275,10 @@ export function makeTree(seed: number, kind?: TreeKind): THREE.Group {
     let r = range(rng, 0.42, 0.55);
     for (let i = 0; i < 3; i++) {
       const h = range(rng, 0.45, 0.6);
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), mat(i % 2 ? getPalette().leafDeep : getPalette().leafGreen));
+      const coneGeo = new THREE.ConeGeometry(r, h, 7);
+      const coneColor = i % 2 ? getPalette().leafDeep : getPalette().leafGreen;
+      tintGradient(coneGeo, coneColor, 0.86, 1.12);
+      const cone = new THREE.Mesh(coneGeo, matVC());
       cone.position.y = y + h / 2;
       cone.castShadow = true;
       foliage.add(cone);
@@ -287,10 +290,9 @@ export function makeTree(seed: number, kind?: TreeKind): THREE.Group {
     const trunkTall = trunkH * 1.35;
     trunk.scale.y = 1.35;
     const layer = (r: number, y: number, color: number) => {
-      const cap = new THREE.Mesh(
-        jitter(new THREE.IcosahedronGeometry(r, 0), r * 0.12),
-        mat(color),
-      );
+      const capGeo = jitter(new THREE.IcosahedronGeometry(r, 0), r * 0.12);
+      tintGradient(capGeo, color, 0.84, 1.14);
+      const cap = new THREE.Mesh(capGeo, matVC());
       cap.scale.set(1, 0.42, 1);
       cap.position.y = y;
       cap.castShadow = true;
@@ -302,10 +304,9 @@ export function makeTree(seed: number, kind?: TreeKind): THREE.Group {
     const blobs = 2 + Math.floor(rng() * 2);
     for (let i = 0; i < blobs; i++) {
       const r = range(rng, 0.3, 0.46);
-      const blob = new THREE.Mesh(
-        jitter(new THREE.IcosahedronGeometry(r, 0), r * 0.18),
-        mat(i % 2 ? getPalette().leafGreen : getPalette().leafLight),
-      );
+      const blobGeo = jitter(new THREE.IcosahedronGeometry(r, 0), r * 0.18);
+      tintGradient(blobGeo, i % 2 ? getPalette().leafGreen : getPalette().leafLight, 0.82, 1.16);
+      const blob = new THREE.Mesh(blobGeo, matVC());
       blob.position.set(range(rng, -0.25, 0.25), trunkH + range(rng, 0.05, 0.4), range(rng, -0.25, 0.25));
       blob.castShadow = true;
       foliage.add(blob);
@@ -381,6 +382,26 @@ export function makePond(seed = 13579): THREE.Group {
   g.add(water);
   g.userData.water = water;
   g.userData.waterBaseY = waterBaseY;
+
+  // 浅色岸线：土岸顶面压一圈亮沙色细环。
+  // 借鉴 2D 等距插画的"描边"思路——低多边形靠一条亮边就能和草地分开，画面更干净。
+  const rim = new THREE.Mesh(
+    new THREE.RingGeometry(R - 0.03, R + 0.3, 32),
+    matOwn(0xf5ead0, { side: THREE.DoubleSide }),
+  );
+  rim.rotation.x = -Math.PI / 2;
+  rim.position.y = 0.145;
+  rim.receiveShadow = true;
+  g.add(rim);
+
+  // 水面高光：左侧一小片椭圆亮斑，模拟天光反射；没有它水面像一块蓝色塑料
+  const gloss = new THREE.Mesh(
+    new THREE.CircleGeometry(0.46, 18).rotateX(-Math.PI / 2),
+    matOwn(0xffffff, { transparent: true, opacity: 0.26, depthWrite: false }),
+  );
+  gloss.scale.set(1, 1, 0.5);
+  gloss.position.set(-0.22, waterBaseY + 0.09, -0.2);
+  g.add(gloss);
 
   // 几片睡莲点缀，水不至于太死板
   const pads = 2 + Math.floor(rng() * 2);

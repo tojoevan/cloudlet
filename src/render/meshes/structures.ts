@@ -125,6 +125,16 @@ export function makeHouse(
     }
   }
 
+  // 檐口白线：屋顶与墙体之间一条浅色细带。
+  // 这是 2D 等距插画（Township 那种）里最常见的分隔手法，
+  // 在 3D 低多边形上加一条就能把"积木块"读成"画出来的房子"。
+  const cornice = new THREE.Mesh(
+    new THREE.BoxGeometry(w + 0.12, 0.055, d + 0.12),
+    mat(new THREE.Color(p.body).lerp(new THREE.Color(0xffffff), 0.55).getHex()),
+  );
+  cornice.position.y = floors * floorH + 0.02;
+  g.add(cornice);
+
   // 顶层屋顶：按户型分三种收法
   const topY = floors * floorH;
   const rh = range(rng, 0.45, 0.7);
