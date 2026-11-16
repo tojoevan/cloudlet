@@ -204,3 +204,63 @@ export function makeSignpost(): THREE.Group {
 
 /** 场景里所有灯的玻璃球都挂这个名字，供夜间统一点亮 */
 export const LAMP_GLASS = 'lampGlass';
+
+/** 市集摊位：柜台 + 四柱 + 条纹雨棚，小镇商业气息的来源 */
+export function makeStall(seed: number): THREE.Group {
+  const rng = mulberry32(seed);
+  const g = new THREE.Group();
+  const w = 0.86;
+  const d = 0.5;
+  // 柜台
+  const counter = new THREE.Mesh(new THREE.BoxGeometry(w, 0.34, d), mat(WOOD));
+  counter.position.y = 0.17;
+  counter.castShadow = true;
+  counter.receiveShadow = true;
+  g.add(counter);
+  // 四角立柱
+  for (const sx of [-w / 2 + 0.05, w / 2 - 0.05]) {
+    for (const sz of [-d / 2 + 0.05, d / 2 - 0.05]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.86, 0.045), mat(WOOD_DARK));
+      post.position.set(sx, 0.43, sz);
+      post.castShadow = true;
+      g.add(post);
+    }
+  }
+  // 条纹雨棚：两色交替的窄条
+  const stripe = [0xef8b6a, 0xfdf3e3];
+  const n = 6;
+  for (let i = 0; i < n; i++) {
+    const seg = new THREE.Mesh(
+      new THREE.BoxGeometry(w / n + 0.005, 0.035, d + 0.16),
+      mat(stripe[i % 2]),
+    );
+    seg.position.set(-w / 2 + (w / n) * (i + 0.5), 0.9, 0);
+    seg.rotation.x = -0.14;
+    seg.castShadow = true;
+    g.add(seg);
+  }
+  // 摊上的货
+  for (let i = 0; i < 3; i++) {
+    const crate = new THREE.Mesh(
+      new THREE.BoxGeometry(0.14, 0.1, 0.14),
+      mat(i === 1 ? 0xffd45e : 0xf0687a),
+    );
+    crate.position.set(-0.2 + rng() * 0.4, 0.39, (rng() - 0.5) * 0.2);
+    g.add(crate);
+  }
+  return g;
+}
+
+/** 树篱：一段绿色矮墙，用来分隔街区/围合院落 */
+export function makeHedge(len = 2.2): THREE.Group {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(len, 0.34, 0.26), mat(getPalette().leafDeep));
+  body.position.y = 0.17;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  g.add(body);
+  const top = new THREE.Mesh(new THREE.BoxGeometry(len * 0.96, 0.12, 0.2), mat(getPalette().leafGreen));
+  top.position.y = 0.36;
+  g.add(top);
+  return g;
+}

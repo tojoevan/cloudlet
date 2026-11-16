@@ -13,6 +13,8 @@ import {
   LAMP_GLASS,
   makeBarrels,
   makeFenceLine,
+  makeHedge,
+  makeStall,
   makeFlowerBed,
   makeLamp,
   makeMailbox,
@@ -436,10 +438,16 @@ export class World {
       [-edge + 0.15, arc - 0.6], [edge - 0.15, arc - 0.6]]) {
       this.addProp(makeLamp(), x, z, x > 0 ? Math.PI : 0);
     }
-    // 入口路牌 + 岛缘花坛
-    this.addProp(makeSignpost(), -1.5, edge, Math.PI);
+    // 入口路牌 + 摊市 + 岛缘花坛：把"入口"做成一个真的能逛的地方
+    this.addProp(makeSignpost(), -2.9, edge, Math.PI);
+    this.addProp(makeStall(4401), -1.6, edge - 0.35, Math.PI, 0.7);
+    this.addProp(makeStall(4402), 1.6, edge - 0.35, Math.PI, 0.7);
     this.addProp(makeFlowerBed(3301), -(arc - 1.2), edge);
     this.addProp(makeFlowerBed(3302), arc - 1.2, edge);
+    // 背侧用树篱围出两段"院落"，比纯栅栏更有生活气
+    for (const x of [-arc * 0.55, arc * 0.55]) {
+      this.addProp(makeHedge(arc * 0.7), x, -edge + 0.35, 0, 0.6);
+    }
   }
 
   /** 圆岛生活道具：井、邮筒、木桶、花坛、路牌，沿农田与树林之间的空地摆放 */
