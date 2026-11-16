@@ -2,6 +2,7 @@ import { CROP_ORDER, CROPS } from '../data/crops';
 import { recipesOf, isDirectSell } from '../data/factories';
 import { consumeItems, expForLevel, hasItems, itemPrice } from './economy';
 import { rewardMult } from './simulation';
+import { festivalOrder } from './festival';
 import type { GameState, ItemId, Order, OrderLine, ProductId } from './types';
 
 export const ORDER_SLOTS = 3;
@@ -84,7 +85,7 @@ export function deliver(state: GameState, orderId: string, now: number): Deliver
   consumeItems(state, order.lines);
 
   // Fever 与专注可叠加，专注本身也是一层正反馈
-  const mult = rewardMult(state, now);
+  const mult = rewardMult(state, now) * festivalOrder();
   const coins = Math.floor(order.coins * mult);
   const exp = Math.floor(order.exp * mult);
   state.coins += coins;

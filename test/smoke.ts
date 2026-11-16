@@ -44,6 +44,7 @@ import { FACTORY_ORDER, PRODUCTS } from '../src/data/factories';
 import { ACHIEVEMENTS } from '../src/core/achievements';
 import { codexTotal } from '../src/core/codex';
 import { seasonOf, SEASONS, setSeasonOverride, decoAvailableIn, seasonGrassTint } from '../src/core/season';
+import { festivalOf, FESTIVALS } from '../src/core/festival';
 import type { GameState } from '../src/core/types';
 import { setNightOverride, dayNightIncome } from '../src/core/daynight';
 
@@ -475,6 +476,17 @@ section('昼夜耦合');
   check('约快 15%', Math.abs(night - Math.round(day / 1.15)) <= 2, String(night));
   check('夜间被动收益倍率 > 1', dayNightIncome() > 1, String(dayNightIncome()));
   setNightOverride(false);
+}
+
+section('节日活动');
+{
+  check('3/25 是樱花祭', festivalOf(new Date(2026, 2, 25))?.id === 'sakura');
+  check('8/1 是夏日祭', festivalOf(new Date(2026, 7, 1))?.id === 'nightmarket');
+  check('10/1 是丰收节', festivalOf(new Date(2026, 9, 1))?.id === 'harvest');
+  check('12/25 是雪灯节', festivalOf(new Date(2026, 11, 25))?.id === 'snowlight');
+  check('1/3 仍在雪灯节（跨年）', festivalOf(new Date(2026, 0, 3))?.id === 'snowlight');
+  check('6/1 没有节日', festivalOf(new Date(2026, 5, 1)) === null);
+  check('每个节日都有加成', FESTIVALS.every((f) => (f.crop ?? 1) > 1 || (f.income ?? 1) > 1 || (f.order ?? 1) > 1));
 }
 
 console.log(`\n${pass} 通过，${fail} 失败\n`);

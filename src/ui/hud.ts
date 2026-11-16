@@ -13,6 +13,7 @@ import { isFever } from '../core/simulation';
 import type { GameState, ItemId } from '../core/types';
 import { itemColor } from '../data/items';
 import { el, fmt, fmtMMSS, icon, type IconName, swatch } from './dom';
+import { activeFestival } from '../core/festival';
 
 interface Chip {
   root: HTMLElement;
@@ -43,6 +44,8 @@ export class HUD {
   private ach = makeChip('ach', 'ach clickable');
   /** 会员等级徽章，来源是账号档案（服务端权威），未登录时恒为 V1 */
   private tier = makeChip('tier', 'tier clickable');
+  /** 节日徽章：活动期间才出现 */
+  private festival = el('div', 'chip festival');
 
   constructor(onCodex: () => void, onAch: () => void, onInv: () => void) {
     this.el.append(
@@ -54,7 +57,9 @@ export class HUD {
       this.codex.root,
       this.ach.root,
       this.tier.root,
+      this.festival,
     );
+    this.festival.style.display = 'none';
     this.fever.style.display = 'none';
     this.codex.root.addEventListener('click', onCodex);
     this.ach.root.addEventListener('click', onAch);
@@ -64,6 +69,16 @@ export class HUD {
   update(state: GameState, now: number, memberTier = 1): void {
     this.lv.text.textContent = `Lv ${state.level}`;
     this.lv.sub.textContent = `${state.exp}/${expForLevel(state.level)}`;
+
+    // 节日徽章：有活动才显示，颜色用活动主题色
+    const fest = activeFestival();
+    if (fest) {
+      this.festival.textContent = fest.name;
+      this.festival.style.display = '';
+      this.festival.style.background = '#' + fest.color.toString(16).padStart(6, '0');
+    } else {
+      this.festival.style.display = 'none';
+    }
 
     this.tier.text.textContent = `V${memberTier}`;
     this.tier.sub.textContent = '会员';

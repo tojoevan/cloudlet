@@ -36,6 +36,7 @@ import { deliver } from './core/orders';
 import { deliverWish } from './core/wishes';
 import { ISLAND_BONUS } from './core/islandBonus';
 import { currentSeason, setSeasonOverride } from './core/season';
+import { setFestivalDate } from './core/festival';
 import { clearLocal, exportCode, exportSaveFile, getDeviceId, importCode, loadLocal, saveLocal } from './core/save';
 import { canPlace } from './core/grid';
 import { advance, tick } from './core/simulation';
@@ -1229,6 +1230,18 @@ setInterval(() => {
   if (next === weatherNow) return;
   applyWeather(next, true);
 }, 4 * 60_000);
+
+// ?fest=sakura|nightmarket|harvest|snowlight 预览节日效果（调试/截图用）
+{
+  const raw = new URLSearchParams(location.search).get('fest');
+  const dates: Record<string, Date> = {
+    sakura: new Date(2026, 3, 1),
+    nightmarket: new Date(2026, 7, 1),
+    harvest: new Date(2026, 9, 1),
+    snowlight: new Date(2026, 11, 20),
+  };
+  if (raw && dates[raw]) setFestivalDate(dates[raw]);
+}
 
 // ?season=spring|summer|autumn|winter 预览季节效果（调试/截图用）
 {

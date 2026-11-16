@@ -245,6 +245,12 @@ button {
   font-weight: 400;
 }
 
+.chip.festival {
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 6px 20px rgba(43, 58, 85, 0.22);
+}
+
 .chip.fever {
   background: var(--c-accent);
   color: #fff;
