@@ -1155,6 +1155,8 @@ function syncTimeOfDay(): void {
     nightNow = n;
     world.applyTimeOfDay(n);
     audio.setDayNight(!n);
+    // 换班提示：让玩家知道夜里换了节奏，而不是单纯变暗
+    toast(n ? '入夜了 · 作物生长 +15%，居民收入 +20%' : '天亮了 · 居民出门上工');
   }
 }
 syncTimeOfDay();

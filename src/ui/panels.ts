@@ -4,6 +4,7 @@ import { itemName, itemPrice, populationOf, SELL_RATE } from '../core/economy';
 import { prosperityOf } from '../core/economy';
 import { ISLAND_BONUS } from '../core/islandBonus';
 import { currentSeason, decoAvailableIn } from '../core/season';
+import { dayNightBonus } from '../core/daynight';
 import { COLLECTION_SETS } from '../core/collection';
 import { FOCUS_PRESETS, focusRemainMs, isFocusing } from '../core/focus';
 import type { BuildingType, CropId, FactoryType, GameState, ItemId, Settings } from '../core/types';
@@ -226,7 +227,11 @@ export function openBuildPanel(
 
   body.appendChild(el('p', 'hint', '社区建筑'));
   const season = currentSeason();
+  const dn = dayNightBonus();
   body.appendChild(el('p', 'hint', `当前 ${season.name}季 · ${season.note}`));
+  body.appendChild(
+    el('p', 'hint', dn.night ? '此刻是夜晚 · 作物 +15%、居民收入 +20%' : '此刻是白天 · 居民出门上工'),
+  );
   const grid = el('div', 'grid');
   // 季节限定装饰只在当季出现，其余季节从列表里隐藏
   const availableBuilding = (t: string) => decoAvailableIn(t, season.id);

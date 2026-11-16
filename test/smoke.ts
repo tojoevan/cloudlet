@@ -45,6 +45,11 @@ import { ACHIEVEMENTS } from '../src/core/achievements';
 import { codexTotal } from '../src/core/codex';
 import { seasonOf, SEASONS, setSeasonOverride, decoAvailableIn } from '../src/core/season';
 import type { GameState } from '../src/core/types';
+import { setNightOverride, dayNightIncome } from '../src/core/daynight';
+
+// 测试默认固定在白天：昼夜会轻微影响作物时间与被动收益，
+// 不锁定的话同一份测试在凌晨跑和在下午跑会得到不同数字。
+setNightOverride(false);
 
 let pass = 0;
 let fail = 0;
@@ -446,6 +451,23 @@ section('季节');
   check('每季都有专属装饰与加成作物', allHaveDeco);
   check('稻草人只在秋天可建', decoAvailableIn('scarecrow', 'autumn') && !decoAvailableIn('scarecrow', 'spring'));
   check('普通装饰常年可建', decoAvailableIn('bench', 'spring') && decoAvailableIn('bench', 'winter'));
+}
+
+section('昼夜耦合');
+{
+  setNightOverride(false);
+  const d = createInitialState('daynight-test');
+  d.level = 12;
+  const t = Date.now();
+  plant(d, 0, 'wheat', t);
+  const day = d.plots[0].readyAt - t;
+  setNightOverride(true);
+  plant(d, 1, 'wheat', t);
+  const night = d.plots[1].readyAt - t;
+  check('夜间作物更快', night < day, `${night} vs ${day}`);
+  check('约快 15%', Math.abs(night - Math.round(day / 1.15)) <= 2, String(night));
+  check('夜间被动收益倍率 > 1', dayNightIncome() > 1, String(dayNightIncome()));
+  setNightOverride(false);
 }
 
 console.log(`\n${pass} 通过，${fail} 失败\n`);
