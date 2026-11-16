@@ -53,6 +53,7 @@ import { setScheme, getSchemeId } from './render/palette';
 import { closeModal, el, floatAt, fmtDur, initUI, openModal, toast } from './ui/dom';
 import { ActionBar, HUD, OrderBoard, WishBoard } from './ui/hud';
 import { Guide } from './ui/guide';
+import { playIntro } from './ui/intro';
 import { SpeechBubble } from './ui/speech';
 import {
   openAchievementsPanel,
@@ -1442,6 +1443,17 @@ view.setPowerSave(state.settings.powerSave);
 if (state.stats.ordersDone > 0) state.guideDone = true;
 
 view.resize();
+
+// 首次进入：镜头推近 + 标题卡（?intro=1 可重新播放）
+{
+  const forced = new URLSearchParams(location.search).get('intro') === '1';
+  const seen = localStorage.getItem('cloudlet.intro');
+  if (forced || !seen) {
+    view.playIntro();
+    playIntro(() => localStorage.setItem('cloudlet.intro', '1'));
+  }
+}
+
 requestAnimationFrame(frame);
 
 if (state.stats.harvests === 0 && state.stats.ordersDone === 0) {

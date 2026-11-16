@@ -118,6 +118,11 @@ export class SceneView {
   /** 键盘旋转的目标角度，靠插值趋近，转起来才不会瞬跳 */
   private targetYaw = Math.PI * 0.25;
   private zoom = 1;
+  /** 开场演出：用墙钟时间推进，避免逐帧 dt 被 clamp 后慢设备上拖得过长 */
+  private introStart = 0;
+  private introFrom = 1;
+  private introTo = 1;
+  private static readonly INTRO_SEC = 3.2;
   private sun!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
   private fill!: THREE.DirectionalLight;
@@ -510,6 +515,23 @@ export class SceneView {
   update(dt: number): void {
     this.backdrop?.update(dt);
     this.weather.update(dt);
+    // 开场演出：3.2 秒内把镜头从远处推近，并缓慢环绕，像一个"抵达"的镜头
+    if (this.introStart > 0) {
+      const elapsed = (performance.now() - this.introStart) / 1000;
+      if (elapsed < SceneView.INTRO_SEC) {
+        const t = elapsed / SceneView.INTRO_SEC;
+        const e = 1 - Math.pow(1 - t, 3); // easeOutCubic
+        this.setZoom(this.introFrom + (this.introTo - this.introFrom) * e);
+        this.yaw += dt * 0.06;
+        this.targetYaw = this.yaw;
+        this.updateCamera();
+        return;
+      }
+      // 收尾：精确回到目标缩放，避免帧率抖动留下半程
+      this.introStart = 0;
+      this.setZoom(this.introTo);
+      this.updateCamera();
+    }
     this.easeYaw(dt);
     const now = performance.now();
     // 展示模式：进入即持续环绕，不被 30s 待机计时卡住
@@ -698,6 +720,14 @@ export class SceneView {
       this.target.x = (this.target.x / len) * r;
       this.target.z = (this.target.z / len) * r;
     }
+  }
+
+  /** 播放开场镜头：从拉远视角推近到当前适配视角 */
+  playIntro(): void {
+    this.introFrom = Math.min(this.zoom * 0.55, 0.6);
+    this.introTo = this.zoom;
+    this.introStart = performance.now();
+    this.setZoom(this.introFrom);
   }
 
   setZoom(z: number): void {
