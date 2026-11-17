@@ -909,7 +909,8 @@ function buildRoof(
       const triGeo = new THREE.ShapeGeometry(shape);
       triGeo.rotateY(Math.PI / 2);
       const tri = new THREE.Mesh(triGeo, mat(bodyColor));
-      tri.position.set((dir * w) / 2, 0, 0);
+      // 山墙三角与墙体共面会 z-fighting，旋转时表现为屋顶边缘闪烁；外移 12mm
+      tri.position.set((dir * (w + 0.024)) / 2, 0, 0);
       g.add(tri);
     }
     return g;

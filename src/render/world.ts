@@ -1295,7 +1295,7 @@ export class World {
     // 这是"梦想城镇"式画面上最关键的场域线索——有广场才有"镇"。
     const plazaR = 2.65;
     const plaza = makePlaza(plazaR);
-    plaza.position.set(POND.x, 0.008, POND.y);
+    plaza.position.set(POND.x, 0.022, POND.y);
     this.root.add(plaza);
     const ring = plazaR - 0.45;
     // 四张长椅朝内，四个路灯在斜角，花坛填空档

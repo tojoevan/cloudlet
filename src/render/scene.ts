@@ -366,6 +366,10 @@ export class SceneView {
       magFilter: THREE.LinearFilter,
       depthBuffer: true,
       stencilBuffer: false,
+      // 场景先渲进离屏 RT，默认没有 MSAA；专注模式缓慢旋转时，
+      // 草叶/屋檐/岩壁的边缘会持续“爬行”，看起来像模型在闪。
+      // 4x MSAA 是这一层最直接、最有效的修复。
+      samples: window.innerWidth <= 640 ? 2 : 4,
     });
     // 深度纹理：给后处理做插画式轮廓线（只描物体剪影，不做全屏线框）
     this.rt.depthTexture = new THREE.DepthTexture(size.x || 1, size.y || 1);
