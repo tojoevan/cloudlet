@@ -25,6 +25,7 @@ import {
 } from './meshes/props';
 import {
   bakeGroundAO,
+  makeBush,
   makeCloud,
   makeFlowerCluster,
   makeGrassPatch,
@@ -42,6 +43,7 @@ import {
 import { ISLAND_RADIUS, getPalette } from './palette';
 import { seasonGrassTint } from '../core/season';
 import { makeGrassField } from './grass';
+import { bakeStatic } from './bake';
 import { matOwn } from './mat';
 import { mulberry32, range } from './rng';
 import { isRipe, plotProgress } from '../core/simulation';
@@ -264,6 +266,77 @@ export class World {
     }
     this.decorateFlavor();
     this.buildGrass();
+    this.decorateClusters();
+  }
+
+  /**
+   * 成组植被：树丛 + 灌木 + 花境。
+   *
+   * 之前树是均匀撒的，看起来像"点阵"；真实村落边缘是**成簇**的——
+   * 一片树林、一丛灌木、一摊野花。成组后同样的数量观感密度高一倍，
+   * 而且每组烘焙成 1 个网格，绘制次数反而更少。
+   */
+  private decorateClusters(): void {
+    if (this.lowSpec) return;
+    const rng = mulberry32(7331);
+    const onSquare = this.islandShape === 'square';
+    const R = this.islandRadius;
+    const half = (SQUARE_N / 2) * CELL;
+
+    const clusters = onSquare ? 10 : 13;
+    for (let c = 0; c < clusters; c++) {
+      const a = (c / clusters) * Math.PI * 2 + rng() * 0.5;
+      let cx: number;
+      let cz: number;
+      if (onSquare) {
+        const r = half + rng() * (8.2 - half) * 0.9;
+        cx = Math.cos(a) * r;
+        cz = Math.sin(a) * r;
+      } else {
+        const r = R * (0.55 + rng() * 0.34);
+        cx = Math.cos(a) * r;
+        cz = Math.sin(a) * r;
+        if (Math.hypot(cx - POND.x, cz - POND.y) < POND_RADIUS + 0.9) continue;
+        if (Math.hypot(cx - FARM_CENTER.x, cz - FARM_CENTER.z) < 3.2) continue;
+      }
+
+      // 整簇先在原点摆好，再整体烘焙成 1 个网格：
+      // 一簇树+灌木+花从 10 来次绘制压到 1 次，观感完全不变。
+      const cluster = new THREE.Group();
+      const trees = 2 + Math.floor(rng() * 3);
+      for (let i = 0; i < trees; i++) {
+        const ta = rng() * Math.PI * 2;
+        const tr = Math.sqrt(rng()) * 1.1;
+        const t = makeTree(Math.floor(rng() * 1e9));
+        t.position.set(Math.cos(ta) * tr, 0, Math.sin(ta) * tr);
+        t.scale.multiplyScalar(0.75 + rng() * 0.5);
+        t.rotation.y = rng() * Math.PI * 2;
+        cluster.add(t);
+        this.shadowAt(cx + t.position.x, cz + t.position.z, 0.85);
+      }
+      const bushes = 3 + Math.floor(rng() * 4);
+      for (let i = 0; i < bushes; i++) {
+        const ba = rng() * Math.PI * 2;
+        const br = 0.5 + Math.sqrt(rng()) * 1.5;
+        const b = makeBush(Math.floor(rng() * 1e9));
+        b.position.set(Math.cos(ba) * br, 0, Math.sin(ba) * br);
+        b.rotation.y = rng() * Math.PI * 2;
+        b.scale.multiplyScalar(0.85 + rng() * 0.4);
+        cluster.add(b);
+        this.shadowAt(cx + b.position.x, cz + b.position.z, 0.4);
+      }
+      const flowers = 1 + Math.floor(rng() * 2);
+      for (let i = 0; i < flowers; i++) {
+        const fa = rng() * Math.PI * 2;
+        const fr = 0.4 + rng() * 1.3;
+        const f = makeFlowerCluster(Math.floor(rng() * 1e9));
+        f.position.set(Math.cos(fa) * fr, 0.02, Math.sin(fa) * fr);
+        cluster.add(f);
+      }
+      bakeStatic(cluster);
+      cluster.position.set(cx, 0, cz);
+      this.root.add(cluster);
+    }
   }
 
   /**

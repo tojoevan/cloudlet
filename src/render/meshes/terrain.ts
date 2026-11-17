@@ -841,3 +841,26 @@ export function bakeGroundAO(geo: THREE.BufferGeometry, casters: AoCaster[]): vo
   }
   col.needsUpdate = true;
 }
+
+/**
+ * 灌木：2~3 个压扁的球叠在一起，比树矮、比草高，
+ * 是"树林边缘"和"庭院角落"最需要的中间尺度植被。
+ */
+export function makeBush(seed: number): THREE.Group {
+  const rng = mulberry32(seed);
+  const g = new THREE.Group();
+  const n = 2 + Math.floor(rng() * 2);
+  for (let i = 0; i < n; i++) {
+    const r = 0.22 + rng() * 0.12;
+    const blob = new THREE.Mesh(
+      jitter(new THREE.IcosahedronGeometry(r, 0), r * 0.16),
+      mat(rng() > 0.5 ? getPalette().leafGreen : getPalette().leafDeep),
+    );
+    blob.position.set((rng() - 0.5) * 0.3, r * 0.7, (rng() - 0.5) * 0.3);
+    blob.scale.y = 0.8;
+    blob.castShadow = true;
+    g.add(blob);
+  }
+  bakeStatic(g);
+  return g;
+}
