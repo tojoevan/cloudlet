@@ -15,6 +15,7 @@ import { itemColor } from '../data/items';
 import { el, fmt, fmtMMSS, icon, type IconName, swatch } from './dom';
 import { activeFestival } from '../core/festival';
 import { satisfactionOf, satisfactionLabel } from '../core/satisfaction';
+import { expansionCount } from '../core/expansion';
 
 interface Chip {
   root: HTMLElement;
@@ -52,8 +53,15 @@ export class HUD {
   /** 「更多」菜单：把图鉴/成就/会员这些低频入口收起来，顶栏只留核心指标 */
   private more = el('button', 'chip more clickable', '⋯');
   private morePanel = el('div', 'hud-more');
+  /** 云海拓荒：藏在更多菜单里，不占核心资源条 */
+  private isles = makeChip('prosper', 'isles clickable');
 
-  constructor(onCodex: () => void, onAch: () => void, onInv: () => void) {
+  constructor(
+    onCodex: () => void,
+    onAch: () => void,
+    onInv: () => void,
+    onArchipelago: () => void,
+  ) {
     // 顶栏只保留核心指标：等级 / 金币 / 繁荣人口 / 仓库 / 满意度 / 节日 / 更多
     this.el.append(
       this.lv.root,
@@ -79,6 +87,7 @@ export class HUD {
       return item;
     };
     this.morePanel.append(
+      mkItem(this.isles, onArchipelago),
       mkItem(this.codex, onCodex),
       mkItem(this.ach, onAch),
       mkItem(this.tier, () => {}),
@@ -120,6 +129,9 @@ export class HUD {
 
     this.store.text.textContent = `${invTotal(state)}/${capacityOf(state)}`;
     this.store.sub.textContent = '仓库';
+
+    this.isles.text.textContent = '云海拓荒';
+    this.isles.sub.textContent = `${expansionCount(state)}/2 岛`;
 
     this.codex.text.textContent = `${codexFound(state)}/${codexTotal()}`;
     this.codex.sub.textContent = '图鉴';

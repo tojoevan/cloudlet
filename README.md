@@ -2,7 +2,11 @@
 
 参考《梦想城镇》的 **low-poly 清新风休闲放置 Web 游戏**。Three.js 等距视角，所有模型**程序化生成、零美术资源**。非商业，可挂在屏幕一旁当学习 / 工作陪伴。
 
-![云上小镇 Cloudlet 游戏画面](snapshot/cloudlet-01.png)
+![云上小镇 Cloudlet 游戏画面](snapshot/cloudlet-art-v13-day.png)
+
+> 2026-11 美术重构 v2：分层浮岛 / 长投影 / 手绘描边 / 纸感 UI。完整对照见 `snapshot/cloudlet-art-v13-before-after.png`，方向与验收维度见 [docs/art-direction-v2.md](docs/art-direction-v2.md)。
+>
+> 进程实验 v1：主岛 + 两座可锚定小岛，16 → 20 → 24 块田，见 [docs/progression-v1.md](docs/progression-v1.md)。
 
 ---
 

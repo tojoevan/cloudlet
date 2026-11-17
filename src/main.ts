@@ -43,6 +43,7 @@ import { canPlace } from './core/grid';
 import { advance, tick } from './core/simulation';
 import { createInitialState } from './core/state';
 import { switchIsland, SQUARE_ID } from './core/island';
+import { EXPANSIONS, hasExpansion, unlockExpansion } from './core/expansion';
 import { seedSquareTestLayout } from './core/seed';
 import type { BuildingType, CropId, FactoryType, GameState, ItemId } from './core/types';
 import { RECIPE_BY_ID } from './data/factories';
@@ -58,6 +59,7 @@ import { ActionBar, HUD, OrderBoard, WishBoard } from './ui/hud';
 import { Guide } from './ui/guide';
 import { playIntro } from './ui/intro';
 import { SpeechBubble } from './ui/speech';
+import { openArchipelagoPanel } from './ui/archipelago';
 import {
   openAchievementsPanel,
   openBuildPanel,
@@ -82,8 +84,22 @@ state.deviceId = deviceId;
 
 // 先有 state 再建 World，让首屏地形按当前激活岛（云上町/方舟町）正确形状渲染
 const world = new World(view.scene, state);
+// 截图/排查用的只读把手：?debug=1 时暴露，不影响正常玩家
+if (new URLSearchParams(location.search).has('debug')) {
+  (window as unknown as { __cloudlet: unknown }).__cloudlet = {
+    view,
+    world,
+    get state() { return state; },
+    unlock: (id: string) => doUnlockExpansion(id),
+    openArchipelago: () => openArchipelago(),
+  };
+}
 // 把岛屿包围盒交给镜头，进入专注/点击倒计时条时据此算出「岛屿最大显示不遮挡」的最佳缩放
 view.setFitBox(world.fitBox());
+// 群岛构图：把主岛与两座拓荒小岛一起装进首屏
+if (world.islandShape === 'round') view.setZoom(view.fitZoom(world.fitBox(), 0.035));
+// 竖屏默认只看主岛，小岛交给底部切换；桌面三岛同屏
+world.setArchipelagoVisibility(window.innerWidth <= 640 ? 'main' : 'all');
 const audio = new AudioManager();
 
 // 应用存档里保存的色系：world 已在默认（马卡龙）下建好，
@@ -144,13 +160,14 @@ const hud = new HUD(
   () => openCodexPanel(state),
   () => openAchievementsPanel(state),
   () => openInventoryPanel(state, (id, count) => doSell(id, count)),
+  () => openArchipelago(),
 );
 const board = new OrderBoard();
 const wishBoard = new WishBoard();
 const guide = new Guide();
-// 订单面板挂到顶部栏「会员等级」芯片之后，随顶栏流式排布，不再悬浮遮挡画面
-hud.el.appendChild(board.el);
-// 心愿面板挂在左侧、与右侧订单对称，避免顶栏被挤成一条长龙
+// 订单与心愿分居右侧 / 左侧，形成对称的“任务双栏”；
+// 不再塞进顶部栏，避免顶栏被挤成一条长龙。
+uiRoot.appendChild(board.el);
 uiRoot.appendChild(wishBoard.el);
 // 手机上默认收起订单面板：三张卡会盖住半个岛屿，点标题头随时展开
 if (window.innerWidth <= 560) board.el.classList.add('collapsed');
@@ -204,6 +221,7 @@ const bar = new ActionBar({
       onUpgrade: doUpgrade,
       onSwitchIsland: switchIslandTo,
       onSeedTest: seedSquareTest,
+      onArchipelago: openArchipelago,
       onDemolish: () => {
         demolishMode = true;
         toast('拆除模式：点选要拆除的建筑（再点「建造」可退出）');
@@ -235,6 +253,33 @@ const bar = new ActionBar({
     }),
   onSettings: () => openSettings(),
 });
+
+/** 真正执行锚定：抽出来给面板和调试入口共用 */
+function doUnlockExpansion(id: string): boolean {
+  const r = unlockExpansion(state, id);
+  if (!r.ok) {
+    toast(r.reason ?? '还不能锚定');
+    return false;
+  }
+  world.rebuild(state, isNight());
+  view.setFitBox(world.fitBox());
+  if (world.islandShape === 'round') view.setZoom(view.fitZoom(world.fitBox(), 0.035));
+  markDirty();
+  saveNow();
+  toast(`锚定 ${r.def?.name ?? '新岛'} · 田块 +${r.plots ?? 4}`);
+  refreshArchNav();
+  world.setArchipelagoVisibility(window.innerWidth <= 640 ? 'main' : 'all');
+  return true;
+}
+
+/** 云海拓荒：锚定小岛 → 重建场景 → 记住新田块 */
+function openArchipelago(): void {
+  openArchipelagoPanel(state, {
+    onUnlock: (id) => {
+      if (doUnlockExpansion(id)) setTimeout(() => openArchipelago(), 180);
+    },
+  });
+}
 
 /** 打开设置面板（含账号分区）。登录/注册/登出成功后会再次调用本函数重渲染。 */
 function openSettings(): void {
@@ -338,6 +383,39 @@ function openSettings(): void {
 }
 
 uiRoot.append(hud.el, bar.el, focusBar);
+
+// 移动端群岛切换：主岛 / 三叶 / 风铃。桌面端三岛同屏，不显示。
+const archNav = el('div', 'arch-nav');
+const archButtons: { id: string; btn: HTMLButtonElement }[] = [];
+function refreshArchNav(): void {
+  archNav.replaceChildren();
+  archButtons.length = 0;
+  const mk = (id: string, label: string, x: number, z: number, zoom: number, unlocked: boolean) => {
+    const b = el('button', 'arch-dot', label);
+    b.disabled = !unlocked;
+    b.addEventListener('click', () => {
+      view.stopShowcase();
+      world.setArchipelagoVisibility(id === 'main' ? (window.innerWidth <= 640 ? 'main' : 'all') : id);
+      view.focus(x, z);
+      view.setZoom(zoom);
+    });
+    archNav.appendChild(b);
+    archButtons.push({ id, btn: b });
+  };
+  mk('main', '主岛', 0, 0, 0.56, true);
+  for (const def of EXPANSIONS) {
+    mk(def.id, def.name.replace('岛', ''), def.center.x, def.center.z, 1.8, hasExpansion(state, def.id));
+  }
+}
+refreshArchNav();
+uiRoot.appendChild(archNav);
+
+// 左下角手账式品牌角标：给画面一个“这是一本旅行手账”的落款
+const brand = el('div', 'brand');
+const seasonName = currentSeason().name;
+brand.innerHTML = `<span class="brand-kicker">CLOUDLET · 云上町</span><strong class="brand-title">云上小镇</strong><span class="brand-meta">${seasonName}日 · 海拔 1,240m · 晴</span>`;
+uiRoot.appendChild(brand);
+
 const speech = new SpeechBubble(uiRoot);
 
 function floatAtCanvas(text: string, kind: '' | 'gold' | 'good' = ''): void {
@@ -690,6 +768,7 @@ function endPlacement(reopen: boolean): void {
       onUpgrade: doUpgrade,
       onSwitchIsland: switchIslandTo,
       onSeedTest: seedSquareTest,
+      onArchipelago: openArchipelago,
       onDemolish: () => {
         demolishMode = true;
         toast('拆除模式：点选要拆除的建筑（再点「建造」可退出）');
@@ -1132,7 +1211,11 @@ window.addEventListener('beforeunload', () => saveLocal(state));
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) saveLocal(state);
 });
-window.addEventListener('resize', () => view.resize());
+window.addEventListener('resize', () => {
+  view.resize();
+  if (window.innerWidth > 640) world.setArchipelagoVisibility('all');
+  else world.setArchipelagoVisibility('main');
+});
 
 // 测量移动端浏览器工具栏（地址栏/底部导航）遮挡高度，写入 --toolbar-b。
 // actionbar / toasts / perf 据此上移，避免被工具栏盖住。100dvh 在某些浏览器

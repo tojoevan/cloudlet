@@ -217,6 +217,8 @@ export interface GameState {
   activeIsland: string;
   /** 非激活岛屿的数据仓库：id → { buildings, plots, factories }。切换时与顶层字段交换。 */
   islandData: Record<string, IslandData>;
+  /** 云上町的横向拓荒：已锚定的小岛 id。每锚定一座 +4 块田，不改变岛的风格。 */
+  expansions?: string[];
   /** 最后保存时刻（ms）。回来时用它算离线时长。 */
   savedAt: number;
   /** 上次与云端同步一致的存档版本时间戳（ms）。同步的「是否下载云端」判断以它为准，

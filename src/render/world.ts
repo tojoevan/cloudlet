@@ -2,18 +2,25 @@ import * as THREE from 'three';
 import type { BuildingType, FactoryType, GameState, IslandShape } from '../core/types';
 import { GRID_COLS, PLOT_COUNT } from '../core/state';
 import { activeIslandMeta, CELL, SQUARE_N } from '../core/island';
+import { EXPANSIONS, expansionPlotSlot } from '../core/expansion';
 import { cellToWorld, footprintCenter, firstFreeCell, occupiedCells, squarePlotCell } from '../core/grid';
 import { populationOf } from '../core/economy';
 import { Agents, WORKER_RADIUS } from './agents';
 import type { AoCaster } from './meshes/terrain';
 import { Bubbles, BUBBLE_READY, BUBBLE_RUNNING } from './bubbles';
 import { makeCrop, growthScale, type CropMesh } from './meshes/crops';
-import { makeBuilding, makeFactory, makeParkBench } from './meshes/structures';
+import { makeBuilding, makeFactory, makeHouse, makeParkBench } from './meshes/structures';
 import {
   LAMP_GLASS,
   makeBarrels,
+  makeBeehive,
+  makeChicken,
+  makeClothesline,
   makeCrateStack,
   makeFenceLine,
+  makeGreenhouse,
+  makeSheep,
+  makeHayBale,
   makeHedge,
   makeStall,
   makeFlowerBed,
@@ -25,6 +32,8 @@ import {
 } from './meshes/props';
 import {
   bakeGroundAO,
+  makeContactShadows,
+  islandHeight,
   makeBush,
   makeCloud,
   makeFlowerCluster,
@@ -42,7 +51,9 @@ import {
 } from './meshes/terrain';
 import { ISLAND_RADIUS, getPalette } from './palette';
 import { seasonGrassTint } from '../core/season';
-import { makeGrassField } from './grass';
+import { makeFlowerField, makeGrassField } from './grass';
+import { makeBalloon } from './meshes/props';
+import { makeRopeBridge, makeSatelliteIslet, makeStonePath, makeWindmill } from './meshes/landmarks';
 import { bakeStatic } from './bake';
 import { matOwn } from './mat';
 import { mulberry32, range } from './rng';
@@ -57,6 +68,29 @@ const FOREST_RADIUS = 2.2;
 /** 池塘：农田与树林之间嵌一块静态水景，居民会绕开它走 */
 const POND = new THREE.Vector2(2.0, 2.5);
 const POND_RADIUS = 1.4;
+/** 风车位置：岛前左的空地，作为整幅画面的第一视觉焦点 */
+/** 一缕炊烟用的柔边贴图，只生成一次 */
+let smokeTex: THREE.CanvasTexture | null = null;
+function getSmokeTex(): THREE.CanvasTexture {
+  if (smokeTex) return smokeTex;
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 64;
+  const ctx = c.getContext('2d');
+  if (ctx) {
+    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, 'rgba(255,255,255,0.9)');
+    g.addColorStop(0.55, 'rgba(255,255,255,0.45)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 64);
+  }
+  smokeTex = new THREE.CanvasTexture(c);
+  return smokeTex;
+}
+
+const WINDMILL = new THREE.Vector2(-2.95, 6.55);
+const WINDMILL_R = 2.0;
 
 /**
  * 田块位置用规整矩形网格排布，外轮廓是圆角矩形（田块本身是圆角方块）。
@@ -64,6 +98,18 @@ const POND_RADIUS = 1.4;
  * 圆岛：居中在 FARM_CENTER 的矩形簇；方岛：落在网格中心 4×4（与建筑同套格子）。
  */
 export function plotPosition(index: number, shape: IslandShape = 'round'): THREE.Vector3 {
+  // 拓荒小岛：2×2 田块，坐标与 makeSatelliteIslet 的画布中心保持一致
+  const slot = expansionPlotSlot(index);
+  if (slot) {
+    const def = EXPANSIONS[slot.islet];
+    const c = slot.slot % 2;
+    const r = Math.floor(slot.slot / 2);
+    return new THREE.Vector3(
+      def.center.x + (c - 0.5) * 1.18,
+      0,
+      def.center.z + (r - 0.5) * 1.18,
+    );
+  }
   if (shape === 'square') {
     const c = squarePlotCell(index);
     const w = cellToWorld(c.gx, c.gz);
@@ -133,6 +179,14 @@ export class World {
 
   private scene: THREE.Scene;
   private crops: ({ mesh: CropMesh; crop: string } | null)[] = [];
+  /** 当前岛的田块数量（含拓荒小岛追加的田） */
+  private plotCount = PLOT_COUNT;
+  /** 已锚定的小岛 id，用于 terrain 层绘制浮岛与桥 */
+  private expansions: string[] = [];
+  /** 小岛与桥的显隐：桌面三岛同屏，竖屏只显示当前聚焦的那一座 */
+  private satellites = new Map<string, { group: THREE.Group; bridge: THREE.Group | null }>();
+  private satelliteGhosts = new Map<string, THREE.Object3D[]>();
+  private archMode: 'all' | 'main' | string = 'all';
   private built = new Map<string, THREE.Group>();
   /** 浮空岛本体（整圈可随建筑扩张而重建变大），与 root 分离便于单独重建 */
   private island: THREE.Group | null = null;
@@ -142,7 +196,6 @@ export class World {
   private factories = new Map<string, THREE.Group>();
   /** 工厂头顶的运转气泡，与工厂一一对应 */
   private bubbles = new Map<string, Bubbles>();
-  private clouds: THREE.Group[] = [];
   private hoverRing: THREE.Mesh;
   private ripeRings: THREE.Mesh[] = [];
   private windowLights: THREE.MeshStandardMaterial[] = [];
@@ -155,6 +208,10 @@ export class World {
   private groundGeo: THREE.BufferGeometry | null = null;
   /** 投影体（树/房/道具），用于烘焙地面遮蔽 */
   private occluders: AoCaster[] = [];
+  /** 接触阴影：草叶层会把烘焙 AO 盖住，所以再单独压一层软阴影 */
+  private contactShadows: THREE.InstancedMesh | null = null;
+  /** 野花：1 次绘制给全岛提供彩色节拍 */
+  private flowerField: THREE.InstancedMesh | null = null;
   /** 建筑数量签名：变了才重新烘焙，避免每帧重算 */
   private aoSig = '';
   /** 目的地签名：建筑/工厂变化时重算居民去处 */
@@ -171,6 +228,17 @@ export class World {
   private bob = 0;
   private pond: THREE.Group | null = null;
   private lowSpec = false;
+  /** 风车叶片：唯一持续转动的大地标 */
+  private windmillBlades: THREE.Object3D | null = null;
+  /** 热气球：让画面上半部也有一件会呼吸的东西 */
+  private balloon: THREE.Object3D | null = null;
+  /** 路灯光晕：夜里用 Sprite 叠一圈暖光，成本极低但“灯真的亮了” */
+  private lampGlows: THREE.Sprite[] = [];
+  /** 萤火虫：夏夜草地上的低频闪烁 */
+  private fireflies: THREE.Points | null = null;
+  private isNight = false;
+  /** 炊烟：每户一小缕，是“这里有人住”最轻的证据 */
+  private smokeStacks: { group: THREE.Group; puffs: { sp: THREE.Sprite; phase: number; base: number }[] }[] = [];
   /** 路网签名：任意路块增删都变，变化即让所有路段重算邻接（保证连贯） */
   private lastRoadSig = '';
   /** 随风轻摆的对象（树冠、草丛、作物），每帧给一点正弦旋转 */
@@ -189,6 +257,8 @@ export class World {
     if (state) {
       this.islandShape = activeIslandMeta(state).shape;
       this.islandId = state.activeIsland;
+      this.plotCount = state.plots.length;
+      this.expansions = state.expansions ?? [];
     }
     this.buildTerrain();
     this.buildFarm();
@@ -214,6 +284,8 @@ export class World {
     this.islandShape = activeIslandMeta(state).shape;
     // islandId 必须在 buildTerrain 之前确定：专属装饰依赖它
     this.islandId = state.activeIsland;
+    this.plotCount = state.plots.length;
+    this.expansions = state.expansions ?? [];
     this.buildTerrain();
     this.buildFarm();
     this.hoverRing = makePlotRing(1.0, 0xffffff);
@@ -239,11 +311,11 @@ export class World {
     this.built = new Map();
     this.factories = new Map();
     this.bubbles = new Map();
-    this.clouds = [];
     this.ripeRings = [];
     this.windowLights = [];
     this.lampLights = [];
     this.pops = [];
+    this.smokeStacks = [];
     this.pathProps = [];
     this.swayers = [];
     this.plotTiles = [];
@@ -255,6 +327,10 @@ export class World {
 
   private buildTerrain(): void {
     this.occluders = [];
+    this.contactShadows = null;
+    this.satellites.clear();
+    this.lampGlows = [];
+    this.fireflies = null;
     this.aoSig = '';
     this.buildGroundOverlay();
     if (this.islandShape === 'square') {
@@ -262,11 +338,16 @@ export class World {
       this.decorateSquare();
     } else {
       this.buildIsland(this.islandRadius);
+      this.buildStaging();
       this.decorateRound();
     }
     this.decorateFlavor();
+    this.decorateStory();
     this.buildGrass();
+    this.buildFlowers();
     this.decorateClusters();
+    this.rebuildContactShadows();
+    this.buildFireflies();
   }
 
   /**
@@ -299,6 +380,7 @@ export class World {
         if (Math.hypot(cx - POND.x, cz - POND.y) < POND_RADIUS + 0.9) continue;
         if (Math.hypot(cx - FARM_CENTER.x, cz - FARM_CENTER.z) < 3.2) continue;
       }
+      if (this.nearWindmill(cx, cz, 0.5)) continue;
 
       // 整簇先在原点摆好，再整体烘焙成 1 个网格：
       // 一簇树+灌木+花从 10 来次绘制压到 1 次，观感完全不变。
@@ -340,6 +422,142 @@ export class World {
   }
 
   /**
+   * 舞台层：上层台地 + 石径网络 + 风车。
+   * 这是与“再加装饰”最本质的区别——改变了岛的**剖面**与**动线**：
+   *  下田（农田/池塘/广场） → 石阶 → 上村（住宅台地）
+   * 人眼会自动把高差读成“这里有组织”，而不是一块撒满模型的绿盘子。
+   */
+  private buildStaging(): void {
+    // 石径：农田—广场—住宅—林缘—风车。路把散点串成村落动线。
+    this.root.add(makeStonePath([[-1.55, 4.75], [-0.75, 4.3], [0.05, 3.7], [0.28, 3.25]], 0.82, 0.05, 11, (x, z) => islandHeight(x, z)));
+    this.root.add(makeStonePath([[-3.5, -1.38], [-2.75, -0.5], [-2.0, 0.42], [-1.2, 1.18], [-0.35, 1.58]], 0.78, 0.05, 12, (x, z) => islandHeight(x, z)));
+    this.root.add(makeStonePath([[4.5, 2.25], [5.45, 2.75], [6.2, 3.55], [6.35, 4.2]], 0.7, 0.05, 13, (x, z) => islandHeight(x, z)));
+    this.root.add(makeStonePath([[2.35, 5.05], [2.6, 5.75], [2.15, 6.55], [1.9, 7.0]], 0.7, 0.05, 14, (x, z) => islandHeight(x, z)));
+    this.root.add(makeStonePath([[-2.9, 5.6], [-3.4, 5.25], [-4.2, 5.15]], 0.64, 0.05, 15, (x, z) => islandHeight(x, z)));
+    // 风车自己的小径，接到农田南口
+    this.root.add(makeStonePath([[-3.35, 6.0], [-3.0, 5.55], [-2.3, 5.25], [-1.55, 5.1]], 0.6, 0.05, 16, (x, z) => islandHeight(x, z)));
+
+    this.buildArchipelago();
+
+    const wm = makeWindmill(4711);
+    wm.group.position.set(WINDMILL.x, 0, WINDMILL.y);
+    wm.group.rotation.y = -0.45;
+    this.root.add(wm.group);
+    this.windmillBlades = wm.blades;
+    this.windowLights.push(...wm.lights);
+    this.shadowAt(WINDMILL.x, WINDMILL.y, 1.6);
+
+    // 风车脚边：木箱、南瓜、花，给地标一圈生活痕迹
+    this.addProp(makeCrateStack(8801), WINDMILL.x + 1.35, WINDMILL.y - 0.45, 0.3, 0.5);
+    this.addProp(makeFlowerBed(8802), WINDMILL.x - 1.35, WINDMILL.y + 0.25, 0, 0.5);
+  }
+
+  /**
+   * 叙事层：农田围栏、草垛、鸡群、蜂箱、温室、晾衣绳、热气球。
+   * 这些不是“装饰品”，而是让画面回答三个问题：
+   *   这里种什么？谁在住？今天发生了什么事？
+   */
+  private decorateStory(): void {
+    if (this.lowSpec || this.islandShape === 'square') return;
+
+    // 农田围栏：北/西/南三面，东面留出入口接石径
+    this.addProp(makeFenceLine(4.15), -3.4, 1.08, 0, 0.45);
+    this.addProp(makeFenceLine(4.55), -5.58, 3.3, Math.PI / 2, 0.45);
+    this.addProp(makeFenceLine(2.4), -4.4, 5.55, 0, 0.4);
+    this.addProp(makeFenceLine(1.1), -1.85, 5.55, 0, 0.3);
+
+    // 草垛：围栏外的晒场
+    this.addProp(makeHayBale(7701), -5.95, 4.05, 0.2, 0.55);
+    this.addProp(makeHayBale(7702), -6.15, 3.25, -0.3, 0.55);
+    this.addProp(makeHayBale(7703), -6.0, 4.75, 0.6, 0.5);
+
+    // 蜂箱：靠花境，暗示授粉与蜂蜜
+    this.addProp(makeBeehive(7711), 0.25, 5.85, -0.1, 0.25);
+    this.addProp(makeBeehive(7712), 0.75, 6.15, 0.25, 0.25);
+    this.addProp(makeBeehive(7713), 1.2, 5.9, -0.2, 0.25);
+
+    // 鸡群：三只在小径边刨食
+    this.addProp(makeChicken(7721), -1.0, 5.9, 0.7, 0.18);
+    this.addProp(makeChicken(7722), -1.45, 6.2, 2.4, 0.18);
+    this.addProp(makeChicken(7723), -0.6, 6.35, 4.1, 0.18);
+
+    // 温室：农田西侧的精致农业符号，也是左半屏的第二个焦点
+    this.addProp(makeGreenhouse(7731), -6.45, 1.55, 0.28, 1.0);
+
+    // 晾衣绳：住宅与广场之间的生活痕迹
+    this.addProp(makeClothesline(7741, 1.35), -3.3, -0.55, 0.5, 0.35);
+
+    // 码头长椅：面向云海的一处停顿（不占建筑网格）
+    this.addProp(makeParkBench(7751), 6.7, 5.05, Math.PI * 0.7, 0.5);
+
+    // 绵羊：岛前右侧的草坡，三只就够了，读者会自动补全“牧场”
+    for (const [sx, sz, seed] of [[6.45, 0.15, 7801], [7.05, 1.0, 7802], [5.95, 0.45, 7803]] as const) {
+      const sheep = makeSheep(seed);
+      sheep.position.set(sx, this.groundY(sx, sz), sz);
+      sheep.rotation.y = (seed % 7) * 0.7;
+      this.root.add(sheep);
+      this.shadowAt(sx, sz, 0.28);
+      this.swayers.push({ obj: sheep, phase: seed, amp: 0.02, speed: 1.1 });
+    }
+
+    // 磨坊小屋：给风车一个“有人住”的邻接关系，也让左下的村落更完整
+    const cottage = makeHouse(9901, { body: 0xf1e2c4, roof: 0x8f5a3f, accent: 0x7fb7ab }, 1);
+    cottage.group.scale.setScalar(0.8);
+    cottage.group.position.set(-5.5, this.groundY(-5.5, 6.25), 6.25);
+    cottage.group.rotation.y = 0.5;
+    this.root.add(cottage.group);
+    this.windowLights.push(...cottage.lights);
+    this.shadowAt(-5.5, 6.25, 0.85);
+
+    // 坡地野花：空着的草坡不是“空”，而是正在开花的牧场
+    const meadowRng = mulberry32(7811);
+    for (let i = 0; i < 16; i++) {
+      const a = meadowRng() * Math.PI * 2;
+      const r = Math.sqrt(meadowRng()) * 2.4;
+      const fx = 4.5 + Math.cos(a) * r;
+      const fz = -3.2 + Math.sin(a) * r * 0.7;
+      const f = makeFlowerCluster(Math.floor(meadowRng() * 1e9));
+      f.position.set(fx, 0.02 + this.groundY(fx, fz), fz);
+      f.scale.setScalar(1.1 + meadowRng() * 0.5);
+      this.root.add(f);
+    }
+
+    // 三棵“主景树”：把天际线抬高，给画面右上方一点垂直重量
+    for (const [tx, tz, ts, kind] of [
+      [7.65, -2.7, 1.75, 'pine'],
+      [-7.05, -4.35, 1.6, 'broadleaf'],
+      [4.15, -7.25, 1.55, 'pine'],
+    ] as const) {
+      const t = makeTree(8801 + Math.round(tx * 13 + tz * 7), kind);
+      t.position.set(tx, this.groundY(tx, tz), tz);
+      t.scale.multiplyScalar(ts);
+      this.root.add(t);
+      this.shadowAt(tx, tz, 1.15);
+      const foliage = t.userData.foliage as THREE.Object3D | undefined;
+      if (foliage) this.swayers.push({ obj: foliage, phase: tx + tz, amp: 0.035, speed: 1.2 });
+    }
+
+    // 沿路路灯：夜里形成一串暖色节拍
+    for (const [lx, lz, rot] of [
+      [-1.9, 3.15, 0.2], [3.55, 5.75, 2.2], [-0.75, 1.2, -0.4], [5.1, 2.75, 1.4],
+    ] as const) {
+      this.addProp(makeLamp(), lx, lz, rot, 0.3);
+    }
+
+    // 热气球：只负责天际线与“云上”叙事，不计入镜头包围盒
+    const balloon = makeBalloon(7761);
+    balloon.position.set(-5.5, 6.9, 5.2);
+    balloon.scale.setScalar(0.95);
+    balloon.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) m.castShadow = false;
+    });
+    balloon.userData.noFit = true;
+    this.root.add(balloon);
+    this.balloon = balloon;
+  }
+
+  /**
    * 密集草皮：整片地面 1 次绘制。
    * 它的作用不是"装饰"，而是给地面提供**尺度与高频细节**——
    * 平滑的绿色在等距视角下会显得空，草叶一上去才像"草地"。
@@ -352,14 +570,16 @@ export class World {
       this.grass = null;
     }
     const rng = mulberry32(9127);
-    const pts: { x: number; z: number; s: number }[] = [];
+    const pts: { x: number; z: number; s: number; y?: number }[] = [];
     // 成簇分布：先撒簇心，再在簇心周围撒 8~18 株，比均匀撒更像自然草皮
     const clump = (cx: number, cz: number) => {
       const n = 12 + Math.floor(rng() * 14);
       for (let i = 0; i < n; i++) {
         const a = rng() * Math.PI * 2;
         const r = Math.sqrt(rng()) * 0.55;
-        pts.push({ x: cx + Math.cos(a) * r, z: cz + Math.sin(a) * r, s: 0.75 + rng() * 0.55 });
+        const x = cx + Math.cos(a) * r;
+        const z = cz + Math.sin(a) * r;
+        pts.push({ x, z, s: 0.75 + rng() * 0.55, y: this.groundY(x, z) });
       }
     };
     if (this.islandShape === 'square') {
@@ -380,12 +600,106 @@ export class World {
         const z = Math.sin(a) * r;
         if (Math.hypot(x - POND.x, z - POND.y) < POND_RADIUS + 0.5) continue;
         if (Math.hypot(x - FARM_CENTER.x, z - FARM_CENTER.z) < 3.0) continue;
+        if (this.nearWindmill(x, z, 0.9)) continue;
         clump(x, z);
       }
     }
     if (pts.length === 0) return;
     this.grass = makeGrassField(pts);
     this.root.add(this.grass);
+  }
+
+  /**
+   * 野花：不按“一丛一丛”摆，而是按生境撒——
+   * 岛缘一圈、向阳草坡一片、石径两侧各一条。花的疏密本身就是地形线索。
+   */
+  private buildFlowers(): void {
+    if (this.lowSpec) return;
+    if (this.flowerField) {
+      this.root.remove(this.flowerField);
+      this.flowerField.geometry.dispose();
+      (this.flowerField.material as THREE.Material).dispose();
+      this.flowerField = null;
+    }
+    const rng = mulberry32(55661);
+    const pts: { x: number; z: number; s: number; y: number; c: number }[] = [];
+    const colors = [0xf26d7d, 0xffd05a, 0xf7f0dc, 0xb28bd8, 0xf39a4b, 0x7fc6d9];
+    const add = (x: number, z: number, scale = 1) => {
+      if (this.nearWindmill(x, z, 0.3)) return;
+      if (Math.hypot(x - POND.x, z - POND.y) < POND_RADIUS + 0.4) return;
+      if (Math.hypot(x - FARM_CENTER.x, z - FARM_CENTER.z) < 2.2) return;
+      pts.push({
+        x, z,
+        s: (0.75 + rng() * 0.7) * scale,
+        y: this.groundY(x, z) + 0.025,
+        c: colors[Math.floor(rng() * colors.length)],
+      });
+    };
+    // 岛缘花环
+    const R = this.islandRadius;
+    for (let i = 0; i < 620; i++) {
+      const a = rng() * Math.PI * 2;
+      const r = R * (0.86 + rng() * 0.105);
+      add(Math.cos(a) * r, Math.sin(a) * r, 1.05);
+    }
+    // 向阳草坡的花海
+    for (let i = 0; i < 360; i++) {
+      const a = rng() * Math.PI * 2;
+      const r = Math.sqrt(rng()) * 2.5;
+      add(4.7 + Math.cos(a) * r, -3.1 + Math.sin(a) * r * 0.7, 1.1);
+    }
+    // 石径两侧
+    for (let i = 0; i < 180; i++) {
+      const t = rng();
+      const x = -1.55 + t * 1.9 + (rng() - 0.5) * 1.1;
+      const z = 4.75 - t * 1.45 + (rng() - 0.5) * 1.2;
+      add(x, z, 0.9);
+    }
+    if (pts.length === 0) return;
+    this.flowerField = makeFlowerField(pts);
+    this.root.add(this.flowerField);
+  }
+
+  /** 萤火虫：一圈贴在草坡上的小光点，白天透明，入夜才亮。 */
+  private buildFireflies(): void {
+    if (this.lowShape()) return;
+    if (this.fireflies) {
+      this.root.remove(this.fireflies);
+      this.fireflies.geometry.dispose();
+      (this.fireflies.material as THREE.Material).dispose();
+      this.fireflies = null;
+    }
+    const rng = mulberry32(60607);
+    const N = 110;
+    const pos = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      const a = rng() * Math.PI * 2;
+      const r = Math.sqrt(rng()) * this.islandRadius * 0.88;
+      const x = Math.cos(a) * r;
+      const z = Math.sin(a) * r;
+      pos[i * 3] = x;
+      pos[i * 3 + 1] = this.groundY(x, z) + 0.35 + rng() * 1.0;
+      pos[i * 3 + 2] = z;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const mat = new THREE.PointsMaterial({
+      color: 0xffdf8a,
+      size: 3,
+      map: getSmokeTex(),
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: false,
+    });
+    this.fireflies = new THREE.Points(geo, mat);
+    this.fireflies.frustumCulled = false;
+    this.root.add(this.fireflies);
+  }
+
+  private lowShape(): boolean {
+    return this.lowSpec;
   }
 
   /**
@@ -489,7 +803,7 @@ export class World {
         polygonOffsetUnits: -1,
       }),
     );
-    mesh.position.y = 0.004; // 略高于岛面，避免与草皮顶盖打架
+    mesh.position.y = 0.006; // 略高于坡地顶盖，避免与草皮打架
     mesh.receiveShadow = true;
     this.root.add(mesh);
     this.groundMesh = mesh;
@@ -787,6 +1101,21 @@ export class World {
   private rebakeAO(): void {
     if (!this.groundGeo) return;
     bakeGroundAO(this.groundGeo, this.occluders);
+    this.rebuildContactShadows();
+  }
+
+  /** 接触阴影是一个整体实例网格：投影体数量变化时整批重建 */
+  private rebuildContactShadows(): void {
+    if (this.lowSpec || this.islandShape === 'square') return;
+    if (this.contactShadows) {
+      this.root.remove(this.contactShadows);
+      this.contactShadows.geometry.dispose();
+      (this.contactShadows.material as THREE.Material).dispose();
+      this.contactShadows = null;
+    }
+    if (this.occluders.length === 0) return;
+    this.contactShadows = makeContactShadows(this.occluders, (x, z) => this.groundY(x, z));
+    this.root.add(this.contactShadows);
   }
 
   /**
@@ -801,7 +1130,7 @@ export class World {
 
   /** 把一件道具放到世界坐标，并登记其中的可发光材质（路灯玻璃） */
   private addProp(obj: THREE.Object3D, x: number, z: number, rotY = 0, shadowR = 0.55): void {
-    obj.position.set(x, 0, z);
+    obj.position.set(x, this.groundY(x, z), z);
     obj.rotation.y = rotY;
     obj.traverse((o) => {
       const m = o as THREE.Mesh;
@@ -811,6 +1140,29 @@ export class World {
     });
     this.root.add(obj);
     this.shadowAt(x, z, shadowR);
+    // 灯罩是独立材质，借它给每盏灯补一圈光晕
+    if (this.lampLights.length > 0) {
+      let hasLamp = false;
+      obj.traverse((o) => {
+        if ((o as THREE.Mesh).name === LAMP_GLASS) hasLamp = true;
+      });
+      if (hasLamp) {
+        const glow = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: getSmokeTex(),
+            color: 0xffc06a,
+            transparent: true,
+            opacity: 0,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          }),
+        );
+        glow.position.set(x, this.groundY(x, z) + 1.0, z);
+        glow.scale.setScalar(1.5);
+        this.root.add(glow);
+        this.lampGlows.push(glow);
+      }
+    }
   }
 
   /**
@@ -883,8 +1235,9 @@ export class World {
       const fa = Math.atan2(z, x);
       if (z > 0 && r > 6.2 && fa > Math.PI * 0.12 && fa < Math.PI * 0.54) continue;
       if (Math.hypot(x - POND.x, z - POND.y) < POND_RADIUS + 0.4) continue; // 池塘区
+      if (this.nearWindmill(x, z, 0.6)) continue;
       const t = makeTree(Math.floor(rng() * 1e9));
-      t.position.set(x, 0, z);
+      t.position.set(x, this.groundY(x, z), z);
       this.root.add(t);
       this.shadowAt(x, z, 0.95);
     }
@@ -898,7 +1251,7 @@ export class World {
       const pz = FOREST.y + Math.sin(a) * r;
       if (Math.hypot(px - POND.x, pz - POND.y) < POND_RADIUS + 0.6) continue; // 别长进池塘
       const t = makeTree(Math.floor(frng() * 1e9));
-      t.position.set(px, 0, pz);
+      t.position.set(px, this.groundY(px, pz), pz);
       this.root.add(t);
       this.shadowAt(px, pz, 0.9);
       const foliage = t.userData.foliage as THREE.Object3D | undefined;
@@ -911,8 +1264,9 @@ export class World {
       const x = Math.cos(a) * r;
       const z = Math.sin(a) * r;
       if (Math.hypot(x - POND.x, z - POND.y) < POND_RADIUS + 0.4) continue; // 池塘区
+      if (this.nearWindmill(x, z, 0.7)) continue;
       const rock = makeRock(Math.floor(rng() * 1e9));
-      rock.position.set(x, 0, z);
+      rock.position.set(x, this.groundY(x, z), z);
       this.root.add(rock);
       this.shadowAt(x, z, 0.5);
     }
@@ -924,7 +1278,7 @@ export class World {
       const z = Math.sin(a) * r;
       if (Math.hypot(x - POND.x, z - POND.y) < POND_RADIUS + 0.4) continue; // 池塘区
       const tuft = makeGrassTuft(Math.floor(rng() * 1e9));
-      tuft.position.set(x, 0, z);
+      tuft.position.set(x, this.groundY(x, z), z);
       this.root.add(tuft);
       this.swayers.push({ obj: tuft, phase: (x + z) * 2.1, amp: 0.13, speed: 2.6 });
     }
@@ -973,7 +1327,7 @@ export class World {
       if (Math.hypot(x - POND.x, z - POND.y) < POND_RADIUS + 0.9) continue;
       if (Math.hypot(x - FARM_CENTER.x, z - FARM_CENTER.z) < 3.1) continue;
       const patch = makeGrassPatch(Math.floor(rng() * 1e9), range(rng, 1.3, 2.9), rng() > 0.42);
-      patch.position.set(x, 0.012, z);
+      patch.position.set(x, 0.012 + this.groundY(x, z), z);
       this.root.add(patch);
     }
     // 花丛：给草地几处暖色重点
@@ -984,22 +1338,10 @@ export class World {
       const z = Math.sin(a) * r;
       if (Math.hypot(x - POND.x, z - POND.y) < POND_RADIUS + 0.5) continue;
       const f = makeFlowerCluster(Math.floor(rng() * 1e9));
-      f.position.set(x, 0.02, z);
+      f.position.set(x, 0.02 + this.groundY(x, z), z);
       this.root.add(f);
     }
 
-    // 云：绕岛缓慢漂移，让静止画面也有呼吸感
-    // 云只留 4 朵并推远：多了会像纸片，抢掉主体的视觉重量
-    for (let i = 0; i < 4; i++) {
-      const cloud = makeCloud(Math.floor(rng() * 1e9));
-      const a = (i / 4) * Math.PI * 2 + 0.6;
-      cloud.position.set(Math.cos(a) * range(rng, 16, 23), range(rng, 6.5, 11), Math.sin(a) * range(rng, 16, 23));
-      cloud.userData.orbit = a;
-      cloud.userData.radius = Math.hypot(cloud.position.x, cloud.position.z);
-      cloud.userData.speed = range(rng, 0.008, 0.02);
-      this.clouds.push(cloud);
-      this.root.add(cloud);
-    }
   }
 
   /** 方岛装饰：沿岛缘种树、点缀岩石草丛，并铺好可点击的网格拾取面（用于落格建造）。 */
@@ -1034,20 +1376,9 @@ export class World {
       const x = range(rng, -half + CELL, half - CELL);
       const z = range(rng, -half + CELL, half - CELL);
       const tuft = makeGrassTuft(Math.floor(rng() * 1e9));
-      tuft.position.set(x, 0, z);
+      tuft.position.set(x, this.groundY(x, z), z);
       this.root.add(tuft);
       this.swayers.push({ obj: tuft, phase: (x + z) * 2.1, amp: 0.1, speed: 2.4 });
-    }
-    // 云
-    for (let i = 0; i < 6; i++) {
-      const cloud = makeCloud(Math.floor(rng() * 1e9));
-      const a = (i / 6) * Math.PI * 2;
-      cloud.position.set(Math.cos(a) * range(rng, 12, 18), range(rng, 5, 10), Math.sin(a) * range(rng, 12, 18));
-      cloud.userData.orbit = a;
-      cloud.userData.radius = Math.hypot(cloud.position.x, cloud.position.z);
-      cloud.userData.speed = range(rng, 0.008, 0.02);
-      this.clouds.push(cloud);
-      this.root.add(cloud);
     }
     this.decorateSquareProps();
 
@@ -1128,15 +1459,98 @@ export class World {
   // 扩岛不好看，容量改由「升级房屋成多层小屋」提供（见 structures.makeHouse）。
 
   private buildFarm(): void {
-    for (let i = 0; i < PLOT_COUNT; i++) {
+    for (let i = 0; i < this.plotCount; i++) {
       const tile = makePlot(i);
       tile.position.copy(plotPosition(i, this.islandShape));
+      tile.visible = this.isPlotVisible(i);
       this.root.add(tile);
       this.plotTiles.push(tile);
       this.pickables.push(tile);
       this.crops.push(null);
       this.ripeRings.push(null as unknown as THREE.Mesh);
     }
+    this.applyArchVisibility();
+  }
+
+  /** 主岛 + 两座拓荒小岛：云海群岛的视觉骨架，桥只接已锚定的岛。 */
+  private buildArchipelago(): void {
+    if (this.islandShape !== 'round') return;
+    this.satellites.clear();
+    this.satelliteGhosts.clear();
+    for (let i = 0; i < EXPANSIONS.length; i++) {
+      const def = EXPANSIONS[i];
+      const unlocked = this.expansions.includes(def.id);
+      const isle = makeSatelliteIslet(def, unlocked, 8801 + i * 97);
+      this.root.add(isle.group);
+      let bridge: THREE.Group | null = null;
+      if (!unlocked) {
+        // 未锚定也把 4 块田的“位置”画出来：玩家一眼就知道这里能加多少容量
+        const ghosts: THREE.Object3D[] = [];
+        for (let k = 0; k < 4; k++) {
+          const c = k % 2;
+          const r = Math.floor(k / 2);
+          const ring = makePlotRing(1.06, 0xffffff);
+          ring.position.set(def.center.x + (c - 0.5) * 1.18, 0.08, def.center.z + (r - 0.5) * 1.18);
+          (ring.material as THREE.MeshBasicMaterial).opacity = 0.32;
+          this.root.add(ring);
+          ghosts.push(ring);
+        }
+        this.satelliteGhosts.set(def.id, ghosts);
+        this.satellites.set(def.id, { group: isle.group, bridge: null });
+        continue;
+      }
+      // 桥：从主岛边缘到小岛内侧，沿两心连线
+      const dist = Math.hypot(def.center.x, def.center.z);
+      const ux = def.center.x / dist;
+      const uz = def.center.z / dist;
+      const ax = ux * 8.45;
+      const az = uz * 8.45;
+      const bx = def.center.x - ux * 2.05;
+      const bz = def.center.z - uz * 2.05;
+      bridge = makeRopeBridge(ax, az, bx, bz);
+      this.root.add(bridge);
+      this.shadowAt(def.center.x, def.center.z, 1.8);
+      this.satellites.set(def.id, { group: isle.group, bridge });
+    }
+    this.applyArchVisibility();
+  }
+
+  /** 'all'=桌面三岛同屏；'main'=竖屏只看主岛；某个 id=只看那一座小岛 */
+  setArchipelagoVisibility(mode: 'all' | 'main' | string): void {
+    this.archMode = mode;
+    this.applyArchVisibility();
+  }
+
+  private applyArchVisibility(): void {
+    for (const [id, s] of this.satellites) {
+      const on = this.archMode === 'all' || this.archMode === id;
+      s.group.visible = on;
+      if (s.bridge) s.bridge.visible = on;
+      for (const ghost of this.satelliteGhosts.get(id) ?? []) ghost.visible = on;
+    }
+    // 小岛上的田块与作物是独立对象，必须跟着小岛一起显隐，否则竖屏边缘会露出半条田
+    for (let i = 0; i < this.plotTiles.length; i++) {
+      const on = this.isPlotVisible(i);
+      this.plotTiles[i].visible = on;
+      const crop = this.crops[i];
+      if (crop) crop.mesh.group.visible = on;
+    }
+  }
+
+  private isPlotVisible(index: number): boolean {
+    const slot = expansionPlotSlot(index);
+    if (!slot) return true;
+    return this.archMode === 'all' || this.archMode === EXPANSIONS[slot.islet].id;
+  }
+
+  /** 当前世界点的地面高度：后村缓坡会抬高住宅与装饰，玩法坐标仍是 y=0 平面 */
+  private groundY(x: number, z: number): number {
+    return this.islandShape === 'square' ? 0 : islandHeight(x, z);
+  }
+
+  /** 风车与它的草丘范围内不再种树/撒草，避免穿模 */
+  private nearWindmill(x: number, z: number, pad = 0): boolean {
+    return Math.hypot(x - WINDMILL.x, z - WINDMILL.y) < WINDMILL_R + pad;
   }
 
   /** 结构同步：只在增删时重建，不每帧跑 */
@@ -1230,6 +1644,7 @@ export class World {
 
       const mesh = makeCrop(wantCrop, i * 7919 + 13);
       const pos = plotPosition(i, this.islandShape);
+      mesh.group.visible = this.isPlotVisible(i);
       mesh.group.position.copy(pos);
       mesh.group.position.y = 0.07; // 作物略高于田面，避免与地块 z-fighting
       this.root.add(mesh.group);
@@ -1310,12 +1725,15 @@ export class World {
         group.lookAt(0, group.position.y, 0);
         group.rotation.x = 0;
         group.rotation.z = 0;
+        // 住宅落在“上村台地”上：只抬显示高度，不改任何逻辑坐标
+        pos.y = this.groundY(pos.x, pos.z);
       }
       group.position.copy(pos);
       // 标注建筑在 buildings 数组中的下标，供点击拾取回溯到具体建筑
       group.userData.buildingId = i;
       this.root.add(group);
       this.shadowAt(pos.x, pos.z, Math.max(w, h) * 0.95);
+      if (b.type === 'house') this.addChimneySmoke(group);
       this.built.set(b.id, group);
       // 新建的建筑弹一下：从 0.72 放大到 1（重建时会整体重弹一次，可接受）
       group.scale.setScalar(0.72);
@@ -1348,6 +1766,28 @@ export class World {
       if (mat) (Array.isArray(mat) ? mat : [mat]).forEach((x) => x.dispose());
     });
     this.built.delete(id);
+  }
+
+  /** 给住宅挂一缕炊烟。挂在建筑 group 下，拆房时自动一起消失。 */
+  private addChimneySmoke(group: THREE.Group): void {
+    const smoke = new THREE.Group();
+    smoke.position.set(0.24, 1.55, -0.16);
+    const puffs: { sp: THREE.Sprite; phase: number; base: number }[] = [];
+    for (let i = 0; i < 4; i++) {
+      const m = new THREE.SpriteMaterial({
+        map: getSmokeTex(),
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        color: 0xf7f1e4,
+      });
+      const sp = new THREE.Sprite(m);
+      sp.scale.setScalar(0.16 + i * 0.05);
+      smoke.add(sp);
+      puffs.push({ sp, phase: i / 4, base: 0.05 + i * 0.04 });
+    }
+    group.add(smoke);
+    this.smokeStacks.push({ group: smoke, puffs });
   }
 
   private syncFactories(state: GameState): void {
@@ -1452,13 +1892,27 @@ export class World {
         }
       }
     }
-    for (const c of this.clouds) {
-      c.userData.orbit += c.userData.speed * dt * 0.06;
-      const r = c.userData.radius;
-      c.position.x = Math.cos(c.userData.orbit) * r;
-      c.position.z = Math.sin(c.userData.orbit) * r;
+    if (this.windmillBlades) this.windmillBlades.rotation.z += dt * 0.42;
+    if (this.balloon) {
+      const ph = (this.balloon.userData.phase as number) ?? 0;
+      this.balloon.position.y = 6.9 + Math.sin(this.bob * 0.45 + ph) * 0.16;
+      this.balloon.position.x = -5.5 + Math.sin(this.bob * 0.18 + ph) * 0.5;
+      this.balloon.rotation.y += dt * 0.015;
     }
-
+    if (this.fireflies && this.isNight) {
+      const mat = this.fireflies.material as THREE.PointsMaterial;
+      mat.opacity = 0.65 + Math.sin(this.bob * 1.7) * 0.2;
+    }
+    // 炊烟：四团错相位向上飘，越飘越淡
+    for (const stack of this.smokeStacks) {
+      if (!stack.group.parent) continue;
+      for (const p of stack.puffs) {
+        const t = (this.bob * 0.22 + p.phase) % 1;
+        p.sp.position.set(Math.sin(t * 4 + p.phase * 9) * 0.08 * t, p.base + t * 0.9, 0);
+        p.sp.scale.setScalar(0.18 + t * 0.34);
+        (p.sp.material as THREE.SpriteMaterial).opacity = Math.sin(t * Math.PI) * 0.32;
+      }
+    }
     this.updateBubbles(state, now, dt);
 
     // 植被随风轻摆：树冠/草丛/作物给一点正弦旋转，错相位避免整齐划一
@@ -1484,6 +1938,15 @@ export class World {
           const scale = 0.4 + p * 4.2;
           ripples[i].scale.set(scale, scale, scale);
           (ripples[i].material as THREE.MeshBasicMaterial).opacity = (1 - p) * 0.32;
+        }
+      }
+      const koi = ud.koi as { mesh: THREE.Mesh; phase: number; r: number; speed: number }[] | undefined;
+      if (koi) {
+        const base = (ud.waterBaseY as number) + 0.095;
+        for (const k of koi) {
+          const a = this.bob * k.speed + k.phase;
+          k.mesh.position.set(Math.cos(a) * k.r, base + Math.sin(this.bob * 1.7 + k.phase) * 0.01, Math.sin(a) * k.r);
+          k.mesh.rotation.y = -a + Math.PI / 2;
         }
       }
       const f = ud.fountain as
@@ -1544,7 +2007,7 @@ export class World {
     const box = new THREE.Box3();
     const tmp = new THREE.Box3();
     for (const child of this.root.children) {
-      if (child.userData && child.userData.orbit !== undefined) continue; // 云不计入
+      if (child.userData?.noFit) continue;
       tmp.setFromObject(child);
       if (tmp.isEmpty()) continue;
       // 浮岛水下底盘延伸到 y<0，正常看不到，钳到地面避免把镜头拉远
@@ -1638,6 +2101,13 @@ export class World {
 
   /** 昼夜：夜间点亮窗户、压暗环境光 */
   applyTimeOfDay(isNight: boolean): void {
+    this.isNight = isNight;
+    for (const g of this.lampGlows) {
+      (g.material as THREE.SpriteMaterial).opacity = isNight ? 0.55 : 0;
+    }
+    if (this.fireflies) {
+      (this.fireflies.material as THREE.PointsMaterial).opacity = isNight ? 0.85 : 0;
+    }
     // 夜里居民往家走，白天出门——换班时立刻重选目标
     this.agents.setNight(isNight);
     const intensity = isNight ? 1.15 : 0;

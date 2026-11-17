@@ -55,8 +55,8 @@ const TIME_STOPS: TimeStop[] = [
   { h: 24,   tint: 0x46578f, k: 0.58, sun: 0.58, hemi: 0.80 },
 ];
 
-const ISO_PITCH = Math.atan(1 / Math.SQRT2); // 真等距 35.26°
-const MIN_ZOOM = 0.55;
+const ISO_PITCH = Math.PI / 6; // 30°：更接近“看一个微缩模型”，能看见岩壁厚度
+const MIN_ZOOM = 0.4; // 竖屏要装下主岛+两座拓荒小岛，允许更远
 const MAX_ZOOM = 2.6;
 
 /** 每帧性能快照，由 render() 在绘制后填充，供主循环采样展示（性能监控浮层用） */
@@ -97,7 +97,7 @@ const WHEEL_SENS = 0.0006;
  * 专注/展示模式的「最佳缩放」：把整座岛框进视野、留出天空余量的舒适比例。
  * 比默认 1.0 略拉远，旋转时既看得到全貌又不会空旷。
  */
-const SHOWCASE_ZOOM = 0.92;
+const SHOWCASE_ZOOM = 1.0;
 
 export interface PointerHit {
   object: THREE.Object3D;
@@ -119,7 +119,7 @@ export class SceneView {
   private yaw = Math.PI * 0.25;
   /** 键盘旋转的目标角度，靠插值趋近，转起来才不会瞬跳 */
   private targetYaw = Math.PI * 0.25;
-  private zoom = 1;
+  private zoom = 1.14;
   /** 开场演出：用墙钟时间推进，避免逐帧 dt 被 clamp 后慢设备上拖得过长 */
   private introStart = 0;
   private introFrom = 1;
@@ -184,7 +184,12 @@ export class SceneView {
         uTiltAmt: { value: 0.18 },
         uGlow: { value: new THREE.Color(0xffffff) },
         uGlowDir: { value: new THREE.Vector3(0.15, 0.9, 0.25).normalize() },
-        uGlowAmt: { value: 0.2 },
+        uGlowAmt: { value: 0.07 },
+        uSunDir: { value: new THREE.Vector3(-0.52, 0.55, 0.52).normalize() },
+        uSunColor: { value: new THREE.Color(0xffe6bd) },
+        uHaze: { value: new THREE.Color(0xffd7b0) },
+        uCloud: { value: new THREE.Color(0xfffaf0) },
+        uTime: { value: 0 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -201,20 +206,63 @@ export class SceneView {
         uniform vec3 uGlow;
         uniform vec3 uGlowDir;
         uniform float uGlowAmt;
+        uniform vec3 uSunDir;
+        uniform vec3 uSunColor;
+        uniform vec3 uHaze;
+        uniform vec3 uCloud;
+        uniform float uTime;
         varying vec3 vDir;
+
+        float hash21(vec2 p) {
+          p = fract(p * vec2(123.34, 456.21));
+          p += dot(p, p + 45.32);
+          return fract(p.x * p.y);
+        }
+        float vnoise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float a = hash21(i);
+          float b = hash21(i + vec2(1.0, 0.0));
+          float c = hash21(i + vec2(0.0, 1.0));
+          float d = hash21(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }
+        float fbm(vec2 p) {
+          float v = 0.0;
+          float a = 0.5;
+          for (int i = 0; i < 4; i++) {
+            v += vnoise(p) * a;
+            p = p * 2.03 + vec2(17.1, 9.2);
+            a *= 0.5;
+          }
+          return v;
+        }
 
         void main() {
           vec3 d = normalize(vDir);
-          // 上蓝下亮的竖直渐变，叠加一点水平倾斜让等色线略斜
+          // 上蓝下暖的竖直渐变，叠加一点水平倾斜让等色线略斜
           float grad = d.y + uTiltAmt * dot(d.xz, normalize(uTilt.xz + vec2(1e-5)));
           float t = clamp((grad + 1.0) * 0.5, 0.0, 1.0);
-          vec3 col = mix(uBottom, uTop, smoothstep(0.0, 1.0, t));
+          vec3 col = mix(uBottom, uTop, smoothstep(0.0, 1.0, pow(t, 0.72)));
+          // 地平线暖霭：让天空的底边不是一条死蓝，而是有日出后的空气感
+          float haze = exp(-max(d.y + 0.02, 0.0) * 7.0);
+          col = mix(col, uHaze, haze * 0.18);
           // 顶部柔光扩散（圆形晕开感）
           float g = pow(max(dot(d, normalize(uGlowDir)), 0.0), 3.0);
           col = mix(col, uGlow, g * uGlowAmt);
+          // 太阳：一个很亮的核 + 大范围暖晕。位移与主光方向一致。
+          float sd = max(dot(d, normalize(uSunDir)), 0.0);
+          col += uSunColor * pow(sd, 240.0) * 1.1;
+          col += uSunColor * pow(sd, 8.0) * 0.10;
+          // 高空卷云：投影到云平面做 fbm，靠地平线淡出，避免糊住岛体
+          vec2 cuv = d.xz / (max(d.y, 0.04) + 0.42);
+          float cl = fbm(cuv * 1.35 + vec2(uTime * 0.004, uTime * 0.0015));
+          cl = smoothstep(0.54, 0.78, cl) * smoothstep(0.02, 0.2, d.y);
+          col = mix(col, uCloud, cl * 0.26);
           // 注意：这里不要再做 sRGB 编码。
           // 场景是渲进 RenderTarget 再由移轴后处理统一转sRGB的，
-          // 天穹若自己再编码一次，就会变成"双重 gamma"——夜景被抬成灰蓝、
+          // 天穹若自己再编码一次，就会变成“双重 gamma”——夜景被抬成灰蓝、
           // 白天则整体发白，正是之前颜色不讨喜的根因。
           gl_FragColor = vec4(col, 1.0);
         }
@@ -236,6 +284,7 @@ export class SceneView {
 
     // 前景遮幅挂在相机下，跟着镜头走；相机本身也要进场景图才会渲染子节点
     this.frameOverlay = createFrameOverlay();
+    this.frameOverlay.mesh.visible = new URLSearchParams(location.search).get('frame') === '1';
     this.camera.add(this.frameOverlay.mesh);
     this.scene.add(this.camera);
     this.setupPost();
@@ -256,11 +305,12 @@ export class SceneView {
   setSky(night: boolean): void {
     this.isNight = night;
     const p = getPalette();
+    const tint = this.timeLook(this.hour).tint;
     // 夜空不做推导：skyBottom 会往白色提亮 14%，再经 sRGB 编码后就变成发白的灰紫，
     // 这正是"夜里颜色不讨喜"的来源。这里直接给一组饱和的靛蓝。
     const bottom = night ? new THREE.Color(0x18213f) : skyBottom(p.sky, false);
     const top = night ? new THREE.Color(0x0a1026) : skyTop(p.sky, false);
-    const glow = bottom.clone().lerp(new THREE.Color(0xffffff), night ? 0.03 : 0.3);
+    const glow = bottom.clone().lerp(new THREE.Color(0xffffff), night ? 0.03 : 0.10);
     // 天气改变天色：雨天压成灰蓝天，雪天偏冷白，樱花天留一点粉
     const w = this.weatherKind;
     if (w === 'rain') {
@@ -277,9 +327,22 @@ export class SceneView {
       bottom.lerp(pink, 0.16);
     }
     if (this.skyMat) {
-      this.skyMat.uniforms.uBottom.value.copy(bottom);
-      this.skyMat.uniforms.uTop.value.copy(top);
-      this.skyMat.uniforms.uGlow.value.copy(glow);
+      const u = this.skyMat.uniforms;
+      u.uBottom.value.copy(bottom);
+      u.uTop.value.copy(top);
+      u.uGlow.value.copy(glow);
+      // 太阳位置随时段降低：黄昏的太阳更贴地平线，光晕也更大更暖
+      const sunHeight = night ? 0.62 : 0.38 + Math.sin(((this.hour - 6) / 12) * Math.PI) * 0.18;
+      (u.uSunDir.value as THREE.Vector3).set(night ? -0.38 : -0.52, Math.max(0.14, sunHeight), night ? 0.34 : 0.52).normalize();
+      (u.uSunColor.value as THREE.Color)
+        .setHex(night ? 0xdbe6ff : 0xffe9c2)
+        .lerp(tint, night ? 0.1 : 0.18);
+      const haze = new THREE.Color(night ? 0x2b3a63 : 0xffcfa4);
+      if (this.weatherKind === 'rain') haze.lerp(new THREE.Color(0x9aabbd), 0.6);
+      (u.uHaze.value as THREE.Color).copy(haze);
+      (u.uCloud.value as THREE.Color)
+        .setHex(night ? 0x53618a : 0xfff8ea)
+        .lerp(tint, night ? 0.25 : 0.08);
     }
     // 雾色取下方亮色，远处地形自然融进地平线天空
     if (this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(bottom);
@@ -304,15 +367,22 @@ export class SceneView {
       depthBuffer: true,
       stencilBuffer: false,
     });
+    // 深度纹理：给后处理做插画式轮廓线（只描物体剪影，不做全屏线框）
+    this.rt.depthTexture = new THREE.DepthTexture(size.x || 1, size.y || 1);
+    this.rt.depthTexture.format = THREE.DepthFormat;
+    this.rt.depthTexture.type = THREE.UnsignedIntType;
     this.postMat = new THREE.ShaderMaterial({
       uniforms: {
         tDiffuse: { value: this.rt.texture },
+        tDepth: { value: this.rt.depthTexture },
         uTexel: { value: new THREE.Vector2(1 / (size.x || 1), 1 / (size.y || 1)) },
+        uInk: { value: 0.16 },
         uBlur: { value: 3.0 },
         uBand: { value: 0.28 },
-        uSat: { value: 1.02 },
-        uExposure: { value: 1.0 },
-        uBlurAmt: { value: 3.0 },
+        uSat: { value: 1.16 },
+        uExposure: { value: 1.06 },
+        uBlurAmt: { value: 4.0 },
+        uTime: { value: 0 },
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
@@ -323,13 +393,22 @@ export class SceneView {
       `,
       fragmentShader: /* glsl */ `
         uniform sampler2D tDiffuse;
+        uniform sampler2D tDepth;
         uniform vec2 uTexel;
+        uniform float uInk;
         uniform float uBlur;
         uniform float uBand;
         uniform float uSat;
         uniform float uExposure;
         uniform float uBlurAmt;
+        uniform float uTime;
         varying vec2 vUv;
+
+        float h21(vec2 p) {
+          p = fract(p * vec2(443.897, 441.423));
+          p += dot(p, p + 19.19);
+          return fract((p.x + p.y) * p.x);
+        }
 
         /**
          * 高光柔化：只压 0.72 以上的部分，中低亮度原样保留。
@@ -351,6 +430,20 @@ export class SceneView {
           vec3 c = texture2D(tDiffuse, vUv).rgb;
           // 只在极高光做肩部压缩，中间调保持原样（保留粉彩天空的色相）
           c = rolloff(c * uExposure);
+
+          // —— 插画式轮廓 ——
+          // 只取深度断层做 1px 描边：天空不着墨，物体之间只留最外轮廓。
+          // 这一笔把“干净的 3D 渲染”往“画出来的模型”推了一大步。
+          float d0 = texture2D(tDepth, vUv).x;
+          float dr = texture2D(tDepth, vUv + vec2(uTexel.x * 1.4, 0.0)).x;
+          float dl = texture2D(tDepth, vUv - vec2(uTexel.x * 1.4, 0.0)).x;
+          float du = texture2D(tDepth, vUv + vec2(0.0, uTexel.y * 1.4)).x;
+          float dd = texture2D(tDepth, vUv - vec2(0.0, uTexel.y * 1.4)).x;
+          float edge = abs(d0 - dr) + abs(d0 - dl) + abs(d0 - du) + abs(d0 - dd);
+          edge = smoothstep(0.0025, 0.02, edge);
+          // 天空背景不描边
+          edge *= step(0.0001, 1.0 - d0);
+          c = mix(c, c * 0.58 + vec3(0.015, 0.025, 0.035), edge * uInk * 2.2);
           if (blurAmt > 0.001) {
             vec3 acc = c;
             float wsum = 1.0;
@@ -370,14 +463,18 @@ export class SceneView {
           // 轻微提饱和：低多边形画面容易发灰
           float l = dot(c, vec3(0.299, 0.587, 0.114));
           c = mix(vec3(l), c, uSat);
-          // 分离色调：暗部往冷蓝压、亮部往暖黄提。
-          // 这是影视调色的经典手法，能给"平涂低多边形"补上一层统一的调子。
-          vec3 shadowTint = vec3(0.96, 0.985, 1.04);
-          vec3 highTint = vec3(1.03, 1.01, 0.975);
-          c *= mix(shadowTint, highTint, smoothstep(0.22, 0.86, l));
-          // 极轻暗角
+          // 柔和 S 曲线：低模最怕“灰而平”，一点对比就能把体积推出来
+          c = mix(c, c * c * (3.0 - 2.0 * c), 0.22);
+          // 分离色调：暗部往青蓝压、亮部往蜜黄提。
+          // 这是影视调色的经典手法，能给“平涂低多边形”补上一层统一的调子。
+          vec3 shadowTint = vec3(0.92, 1.0, 1.06);
+          vec3 highTint = vec3(1.055, 1.02, 0.955);
+          c *= mix(shadowTint, highTint, smoothstep(0.2, 0.84, l));
+          // 极轻暗角 + 细颗粒：把“干净的 3D 渲染”往“画出来的照片”推半步
           vec2 p = vUv - 0.5;
-          c *= 1.0 - dot(p, p) * 0.22;
+          c *= 1.0 - dot(p, p) * 0.26;
+          float grain = (h21(vUv * 1024.0 + fract(uTime * 0.37)) - 0.5) * 0.018;
+          c += grain;
           // 关键：RT 里存的是线性值，自定义 ShaderMaterial 不会自动做 sRGB 编码，
           // 少了这一步整幅画面会明显发暗（草色直接掉成深绿）。
           c = pow(max(c, 0.0), vec3(1.0 / 2.2));
@@ -400,6 +497,11 @@ export class SceneView {
     if (size.x === 0 || size.y === 0) return;
     if (this.rt.width === size.x && this.rt.height === size.y) return;
     this.rt.setSize(size.x, size.y);
+    if (this.rt.depthTexture) {
+      this.rt.depthTexture.image.width = size.x;
+      this.rt.depthTexture.image.height = size.y;
+      this.rt.depthTexture.needsUpdate = true;
+    }
     (this.postMat.uniforms.uTexel.value as THREE.Vector2).set(1 / size.x, 1 / size.y);
   }
 
@@ -454,18 +556,18 @@ export class SceneView {
     if (this.isNight) {
       // 夜里用"冷月光 + 暖补光"的冷暖对比，比整片紫灰高级得多：
       // 主光是淡蓝月光，补光模拟窗灯/路灯的暖色溢光。
-      this.sun.color.set(0xb9c8ff);
-      this.hemi.color.set(0x9fb4e8);
-      this.hemi.groundColor.set(0x5a6b8c);
+      this.sun.color.set(0xaebdff);
+      this.hemi.color.set(0x7f95cc);
+      this.hemi.groundColor.set(0x3f4f70);
       this.fill.color.set(0xffb877);
-      this.fill.intensity = 0.34;
+      this.fill.intensity = 0.42;
     } else {
-      this.sun.color.copy(new THREE.Color(0xfff8ec).lerp(tint, k * 0.8));
-      this.hemi.color.set(0xeef6ff);
-      this.hemi.groundColor.set(0xd6f0c8);
-      // 白天补光偏暖、从背侧打，相当于给低多边形加一道暖轮廓光
-      this.fill.color.set(0xffe6c4);
-      this.fill.intensity = light.fill * hemi * 1.15;
+      this.sun.color.copy(new THREE.Color(0xffe3b4).lerp(tint, k * 0.72));
+      this.hemi.color.set(0xc4e2ff);
+      this.hemi.groundColor.set(0x98b06e);
+      // 白天补光偏冷，从背侧打，给低多边形一道冷色轮廓
+      this.fill.color.set(0xbcd6ff);
+      this.fill.intensity = light.fill * hemi * 1.25;
     }
     // 天气对光照的修正：雨天压暗并偏冷，雪天略提亮，樱花天略加暖
     const w = this.weatherKind;
@@ -490,31 +592,41 @@ export class SceneView {
     // 强度取当前色系的 light 参数：越明亮的色系给越弱的光，避免过曝洗白。
     const light = getScheme().light;
     // 下半球的 groundColor 决定背光面亮度，给足才不会死黑。
-    const hemi = new THREE.HemisphereLight(0xeef6ff, 0xd6f0c8, light.hemi);
+    // 草绿的地面反弹光能把树冠底部和屋檐下染成暖绿色，这是盆景感的关键。
+    const hemi = new THREE.HemisphereLight(0xbfe0ff, 0x9cae72, light.hemi);
     this.scene.add(hemi);
     this.hemi = hemi;
 
-    const sun = new THREE.DirectionalLight(0xfff8ec, light.sun);
-    sun.position.set(9, 16, 7);
+    // 主光从左上前方低角度斜射：影子被拉长、方向一眼可读。
+    // 之前太阳几乎在头顶，投影全缩在物体脚下，画面因此像没有光照的示意图。
+    const sun = new THREE.DirectionalLight(0xfff1d6, light.sun);
+    sun.position.set(-7.5, 8, 10);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    const s = 16;
+    sun.shadow.mapSize.set(2048, 2048);
+    const s = 15;
     sun.shadow.camera.left = -s;
     sun.shadow.camera.right = s;
     sun.shadow.camera.top = s;
     sun.shadow.camera.bottom = -s;
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = 60;
-    sun.shadow.bias = -0.0012;
+    sun.shadow.bias = -0.0009;
+    sun.shadow.normalBias = 0.02;
+    sun.shadow.radius = 2.5;
     this.scene.add(sun);
     this.scene.add(sun.target);
     this.sun = sun;
 
-    // 补光压一点阴影，避免背光面死黑
-    const fill = new THREE.DirectionalLight(0xdcefff, light.fill);
-    fill.position.set(-8, 6, -6);
+    // 冷色补光从右后方来，负责把背光面的轮廓“托”出来，避免死黑
+    const fill = new THREE.DirectionalLight(0xbcd6ff, light.fill);
+    fill.position.set(10, 6, -5);
     this.scene.add(fill);
     this.fill = fill;
+
+    // 正面暖补光：只负责把岩壁/屋檐的暗部从死黑里拉回来，不投影、不抢主光
+    const front = new THREE.DirectionalLight(0xffd9b0, 0.34);
+    front.position.set(0, 5, 14);
+    this.scene.add(front);
 
     this.scene.userData.sun = sun;
     this.scene.userData.hemi = hemi;
@@ -550,6 +662,8 @@ export class SceneView {
 
   update(dt: number): void {
     this.backdrop?.update(dt);
+    if (this.skyMat) this.skyMat.uniforms.uTime.value += dt;
+    if (this.postMat) this.postMat.uniforms.uTime.value += dt;
     this.weather.update(dt);
     // 开场演出：3.2 秒内把镜头从远处推近，并缓慢环绕，像一个"抵达"的镜头
     if (this.introStart > 0) {
@@ -934,6 +1048,13 @@ export class SceneView {
     this.frameOverlay?.setSize(this.camera.right - this.camera.left, this.camera.top - this.camera.bottom);
     this.camera.bottom = -this.frustum / 2;
     this.camera.updateProjectionMatrix();
+    // 竖屏：只把主岛装进首屏。拓荒小岛交给底部的“主岛/三叶/风铃”切换，
+    // 否则三座岛一起塞进 390px 宽，主岛会小到看不清、卫星岛还会被裁掉。
+    if (aspect < 0.85) {
+      this.zoom = 0.56;
+      this.target.set(0, 0, 0);
+      this.updateCamera();
+    }
   }
 
   /** 是否处于「近景」：缩放足够大、能看清居民时才算 */

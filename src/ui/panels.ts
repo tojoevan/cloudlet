@@ -168,6 +168,8 @@ export function openBuildPanel(
     onSeedTest: () => void;
     /** 进入拆除模式：关闭面板后点选建筑即可拆除并返还一半费用 */
     onDemolish: () => void;
+    /** 云海拓荒：两座可锚定的横向小岛 */
+    onArchipelago: () => void;
   },
 ): void {
   const body = el('div');
@@ -213,6 +215,15 @@ export function openBuildPanel(
       el('p', 'hint', `${activeMeta.name}${note ? `：${note}` : ''}`),
     );
   }
+  // 横向拓荒入口：不扩主岛、不盖高楼，只把云海里的两座小岛接过来
+  const expandRow = el('div', 'row');
+  const expandBtn = el('button', 'btn accent', `云海拓荒 · 岛屿容量 ${state.plots.length} 块田`);
+  expandBtn.addEventListener('click', () => {
+    closeModal();
+    ctx.onArchipelago();
+  });
+  expandRow.appendChild(expandBtn);
+  body.appendChild(expandRow);
 
   // 方岛测试便捷入口：清空并随机重铺一层内容，方便看运行效果
   if (state.activeIsland === 'square') {

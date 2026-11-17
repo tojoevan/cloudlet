@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
  * 远景背板：两三层小浮岛 + 云团。
@@ -21,65 +20,49 @@ function makeRng(seed: number): () => number {
   };
 }
 
-/** 一座小浮岛：扁圆台 + 下方倒锥 + 几棵小树剪影 */
-function makeIsle(rnd: () => number, radius: number): THREE.BufferGeometry[] {
-  const parts: THREE.BufferGeometry[] = [];
-  const r = radius * (0.8 + rnd() * 0.4);
-  const topH = r * 0.28;
-  const top = new THREE.CylinderGeometry(r, r * 0.94, topH, 9);
-  top.translate(0, -topH / 2, 0);
-  const tip = new THREE.ConeGeometry(r * 0.94, r * 0.95, 9);
-  tip.rotateX(Math.PI);
-  tip.translate(0, -topH - r * 0.475, 0);
-  parts.push(top, tip);
-
-  const n = 2 + Math.floor(rnd() * 3);
-  for (let i = 0; i < n; i++) {
-    const h = 0.28 + rnd() * 0.26;
-    const cone = new THREE.ConeGeometry(h * 0.55, h, 5);
-    const a = rnd() * Math.PI * 2;
-    const rr = rnd() * r * 0.55;
-    cone.translate(Math.cos(a) * rr, h / 2, Math.sin(a) * rr);
-    parts.push(cone);
+/** 一张柔边云贴图：用多个径向渐变叠出蓬松轮廓，避免再出现“白色多边形石头”。 */
+function makeCloudTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d');
+  if (ctx) {
+    let s = 7331;
+    const rnd = () => {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      return s / 4294967296;
+    };
+    const lobe = (cx: number, cy: number, r: number) => {
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(0, 'rgba(255,253,246,0.98)');
+      g.addColorStop(0.55, 'rgba(255,252,242,0.72)');
+      g.addColorStop(1, 'rgba(255,250,240,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    };
+    for (let i = 0; i < 9; i++) {
+      lobe(44 + rnd() * 168, 118 + rnd() * 44, 34 + rnd() * 38);
+    }
+    for (let i = 0; i < 5; i++) {
+      lobe(60 + rnd() * 136, 94 + rnd() * 36, 26 + rnd() * 28);
+    }
   }
-  return parts;
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearFilter;
+  return tex;
 }
 
-/** 按层深把顶点色向天空色 lerp，模拟大气透视 */
-function tintAll(geo: THREE.BufferGeometry, base: THREE.Color, sky: THREE.Color, fade: number): void {
-  const pos = geo.attributes.position;
-  const colors = new Float32Array(pos.count * 3);
-  const c = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const lift = Math.min(0.12, Math.max(0, pos.getY(i)) * 0.12);
-    c.copy(base).lerp(sky, fade).addScalar(lift);
-    colors[i * 3] = c.r;
-    colors[i * 3 + 1] = c.g;
-    colors[i * 3 + 2] = c.b;
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+export interface Backdrop {
+  group: THREE.Group;
+  update(dt: number): void;
+  setNight(night: boolean): void;
 }
 
-/** 云团：几个压扁的球合并，圆润而非棱角 */
-function makeCloudCluster(rnd: () => number, spread: number): THREE.BufferGeometry[] {
-  const parts: THREE.BufferGeometry[] = [];
-  const n = 3 + Math.floor(rnd() * 3);
-  for (let i = 0; i < n; i++) {
-    const s = 0.9 + rnd() * 1.3;
-    const g = new THREE.IcosahedronGeometry(s, 1);
-    g.scale(1.5, 0.78, 1.2);
-    g.translate((rnd() - 0.5) * spread, (rnd() - 0.5) * 0.35, (rnd() - 0.5) * spread * 0.7);
-    parts.push(g);
-  }
-  return parts;
-}
-
-/**
- * 星空：用 Points 撒点，而不是画在天穹 shader 上。
- * 为什么：天穹是个大球壳，在正交等距 + 近裁剪的这套设置下实际是看不见的
- * （可见的"天空"其实是场景背景色），画在它上面的星星自然也不可见。
- * Points 直接挂在场景里，位置可靠、只占 1 个 draw call。
- */
+/** 星空：Points 撒点，夜里才显形。 */
 function makeStars(count: number, seed: number): THREE.Points {
   let s = seed >>> 0;
   const rnd = () => {
@@ -88,19 +71,17 @@ function makeStars(count: number, seed: number): THREE.Points {
   };
   const pos = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
-    // 正交相机的视锥只有 ~21 单位高，星空必须放在这个盒子里才看得见，
-    // 放在几十上百单位的远处会直接被裁掉（这是它一开始"没有星星"的原因）。
     const a = rnd() * Math.PI * 2;
-    const r = 4 + rnd() * 12;
+    const r = 6 + rnd() * 14;
     pos[i * 3] = Math.cos(a) * r;
-    pos[i * 3 + 1] = 16 + rnd() * 10;
+    pos[i * 3 + 1] = 14 + rnd() * 12;
     pos[i * 3 + 2] = Math.sin(a) * r;
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   const mat = new THREE.PointsMaterial({
     color: 0xffffff,
-    size: 1.6,
+    size: 1.3,
     sizeAttenuation: false,
     transparent: true,
     opacity: 0,
@@ -112,77 +93,62 @@ function makeStars(count: number, seed: number): THREE.Points {
   return points;
 }
 
-export interface Backdrop {
-  group: THREE.Group;
-  update(dt: number): void;
-  setNight(night: boolean): void;
-}
-
 export function createBackdrop(): Backdrop {
   const rnd = makeRng(20261115);
   const group = new THREE.Group();
   group.name = 'backdrop';
 
-  const sky = new THREE.Color(0xbfe4ff);
-  const isleMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
-  const cloudMat = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
+  // 远景不放大块浮岛：避免低模剪影在天空里读成“纸片”。
+  // ---- 云：柔边 Sprite，不再用低模球 ----
+  const cloudTex = makeCloudTexture();
+  const cloudMat = new THREE.SpriteMaterial({
+    map: cloudTex,
     transparent: true,
-    opacity: 0.5,
+    opacity: 0.72,
+    depthWrite: false,
+    depthTest: true,
     fog: false,
+    color: 0xfffaf0,
   });
-
-  const layers: { obj: THREE.Object3D; spin: number; base: number }[] = [];
-
-  // 两层远景浮岛：远层更淡更小、转得更慢（视差）
-  const layout = [
-    { count: 6, radius: 26, size: [0.7, 1.3] as [number, number], fade: 0.74, y: -7.0, tint: 0x8fb9c9, spin: 0.0035 },
-    { count: 4, radius: 20, size: [0.55, 1.0] as [number, number], fade: 0.62, y: -8.6, tint: 0x7fae9e, spin: 0.006 },
-  ];
-
-  for (const L of layout) {
-    const parts: THREE.BufferGeometry[] = [];
-    for (let i = 0; i < L.count; i++) {
-      const a = (i / L.count) * Math.PI * 2 + (rnd() - 0.5) * 0.5;
-      const r = L.radius * (0.85 + rnd() * 0.35);
-      const isle = makeIsle(rnd, L.size[0] + rnd() * (L.size[1] - L.size[0]));
-      const merged = mergeGeometries(isle, false);
-      isle.forEach((g) => g !== merged && g.dispose());
-      if (!merged) continue;
-      merged.rotateY(rnd() * Math.PI);
-      merged.translate(Math.cos(a) * r, L.y + (rnd() - 0.5) * 1.2, Math.sin(a) * r);
-      parts.push(merged);
-    }
-    const all = mergeGeometries(parts, false) ?? parts[0];
-    parts.forEach((p) => p !== all && p.dispose());
-    if (!all) continue;
-    tintAll(all, new THREE.Color(L.tint), sky, L.fade);
-    const mesh = new THREE.Mesh(all, isleMat);
-    group.add(mesh);
-    layers.push({ obj: mesh, spin: L.spin, base: L.y });
+  const clouds: { sprite: THREE.Sprite; baseY: number; drift: number; phase: number }[] = [];
+  const addCloud = (x: number, y: number, z: number, w: number, h: number, opacity: number) => {
+    const m = cloudMat.clone();
+    m.opacity = opacity;
+    const sp = new THREE.Sprite(m);
+    sp.position.set(x, y, z);
+    sp.scale.set(w, h, 1);
+    group.add(sp);
+    clouds.push({ sprite: sp, baseY: y, drift: 0.2 + rnd() * 0.25, phase: rnd() * Math.PI * 2 });
+  };
+  // 地平线云带：放在岛后，给岛一个“浮在云海上”的底座
+  for (let i = 0; i < 6; i++) {
+    addCloud(-24 + i * 9.5 + rnd() * 2, -3.2 + rnd() * 1.1, -22 - rnd() * 5, 8 + rnd() * 4, 3.0 + rnd() * 1.4, 0.34);
+  }
+  // 岛下云海：只露边缘，不抢主体
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + 0.2;
+    addCloud(Math.cos(a) * (17 + rnd() * 4), -10.5 - rnd() * 1.5, Math.sin(a) * (17 + rnd() * 4), 10 + rnd() * 4, 3.4 + rnd() * 1.6, 0.38);
+  }
+  // 高空卷云：更淡更薄
+  for (let i = 0; i < 3; i++) {
+    addCloud(-18 + i * 18, 10 + rnd() * 3, -26, 14 + rnd() * 6, 2.4, 0.10);
   }
 
-  // 云团：贴着岛底一圈，压得很低，只露出轮廓
-  const cloudParts: THREE.BufferGeometry[] = [];
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2 + rnd() * 0.4;
-    const r = 24 + rnd() * 7;
-    const cluster = makeCloudCluster(rnd, 2.0);
-    const merged = mergeGeometries(cluster, false);
-    cluster.forEach((g) => g !== merged && g.dispose());
-    if (!merged) continue;
-    merged.translate(Math.cos(a) * r, -11.5 + (rnd() - 0.5) * 1.2, Math.sin(a) * r);
-    cloudParts.push(merged);
+  // ---- 鸟群：几笔 V 形剪影，给天空一点“活物” ----
+  const birdMat = new THREE.LineBasicMaterial({ color: 0x4f625f, transparent: true, opacity: 0.55, fog: false });
+  const birds = new THREE.Group();
+  for (let i = 0; i < 7; i++) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute([-0.28, 0, 0, 0, 0.12, 0, 0.28, 0, 0], 3));
+    const b = new THREE.Line(g, birdMat);
+    b.position.set((rnd() - 0.5) * 8, (rnd() - 0.5) * 2, (rnd() - 0.5) * 4);
+    b.rotation.y = rnd() * Math.PI;
+    birds.add(b);
   }
-  const clouds = mergeGeometries(cloudParts, false) ?? cloudParts[0];
-  cloudParts.forEach((p) => p !== clouds && p.dispose());
-  let cloudMesh: THREE.Mesh | null = null;
-  if (clouds) {
-    cloudMesh = new THREE.Mesh(clouds, cloudMat);
-    group.add(cloudMesh);
-  }
+  birds.position.set(-9, 8.5, -14);
+  group.add(birds);
 
-  const stars = makeStars(260, 20261117);
+  const stars = makeStars(240, 20261117);
   group.add(stars);
 
   let t = 0;
@@ -190,18 +156,20 @@ export function createBackdrop(): Backdrop {
     group,
     update(dt: number) {
       t += dt;
-      for (const L of layers) {
-        L.obj.rotation.y = t * L.spin;
-        L.obj.position.y = Math.sin(t * 0.22 + L.base) * 0.35;
+      for (const c of clouds) {
+        c.sprite.position.x += c.drift * dt * 0.06;
+        if (c.sprite.position.x > 30) c.sprite.position.x = -30;
+        c.sprite.position.y = c.baseY + Math.sin(t * 0.18 + c.phase) * 0.14;
       }
-      if (cloudMesh) {
-        cloudMesh.rotation.y = t * 0.008;
-        cloudMesh.position.y = Math.sin(t * 0.3) * 0.28;
-      }
+      birds.position.x = -9 + Math.sin(t * 0.045) * 3;
+      birds.position.y = 8.5 + Math.sin(t * 0.5) * 0.12;
+      for (const b of birds.children) b.rotation.z = Math.sin(t * 2.3 + b.position.x) * 0.12;
     },
     setNight(night: boolean) {
-      isleMat.color.setScalar(night ? 0.72 : 1);
-      cloudMat.color.setScalar(night ? 0.78 : 1);
+      for (const c of clouds) {
+        (c.sprite.material as THREE.SpriteMaterial).color.setHex(night ? 0x64729a : 0xfffaf0);
+      }
+      birdMat.opacity = night ? 0.12 : 0.55;
       (stars.material as THREE.PointsMaterial).opacity = night ? 0.95 : 0;
     },
   };

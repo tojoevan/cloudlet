@@ -38,6 +38,7 @@ import { advance, rewardMult, tick } from '../src/core/simulation';
 import { createInitialState } from '../src/core/state';
 import { deliverWish } from '../src/core/wishes';
 import { switchIsland } from '../src/core/island';
+import { ensureExpansionPlots, plotCountOf, unlockExpansion } from '../src/core/expansion';
 import { build } from '../src/core/actions';
 import { CROP_ORDER } from '../src/data/crops';
 import { BUILDING_ORDER } from '../src/data/buildings';
@@ -613,6 +614,32 @@ section('新手加速');
   const later = b.plots[1].readyAt - t;
   check('三次收获后恢复原速', later === 30_000, String(later));
   setSeasonOverride(null);
+}
+
+section('横向拓荒');
+{
+  const s = createInitialState('expand-test');
+  s.stats.harvests = 5;
+  s.stats.ordersDone = 2;
+  s.level = 3;
+  s.coins = 10_000;
+  check('初始 16 块田', s.plots.length === 16, String(s.plots.length));
+  const r = unlockExpansion(s, 'clover');
+  check('锚定三叶岛', r.ok && (s.expansions ?? []).includes('clover'));
+  check('新增 4 块田', s.plots.length === 20, String(s.plots.length));
+  check('总田块 = 20', plotCountOf(s) === 20);
+  check('扣除锚定费', s.coins === 8_000, String(s.coins));
+  check('不能重复锚定', !unlockExpansion(s, 'clover').ok);
+  check('第二座岛需要繁荣度', !unlockExpansion(s, 'windbell').ok);
+  check('新田可种植', plant(s, 16, 'wheat', Date.now()).ok);
+  // 补一座市政厅撑繁荣，验证第二座岛的解锁顺序
+  s.buildings.push({ id: 'test-hall', type: 'hall', seed: 1, level: 3 });
+  check('第一座岛后可锚定第二座', unlockExpansion(s, 'windbell').ok);
+  check('两岛总田块 24', plotCountOf(s) === 24, String(plotCountOf(s)));
+  // 旧存档只有 16 块田但已有 clover：加载时应补齐
+  s.plots.length = 16;
+  ensureExpansionPlots(s);
+  check('旧档按已锚定数量补齐田块', s.plots.length === 24, String(s.plots.length));
 }
 
 console.log(`\n${pass} 通过，${fail} 失败\n`);

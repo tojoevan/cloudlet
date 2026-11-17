@@ -44,6 +44,7 @@ export function createInitialState(deviceId: string): GameState {
     islands: defaultIslands(),
     activeIsland: ROUND_ID,
     islandData: {},
+    expansions: [],
   };
   fillOrders(state, now);
   fillWishes(state, now);

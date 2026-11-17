@@ -1,6 +1,7 @@
 import type { GameState, IslandData, IslandMeta } from './types';
 import { prosperityOf } from './economy';
 import { PLOT_COUNT } from './state';
+import { ensureExpansionPlots } from './expansion';
 
 /** 方岛网格单元尺寸：与农田田块间距一致，即「农田 = 1 格」 */
 export const CELL = 1.18;
@@ -96,5 +97,6 @@ export function switchIsland(state: GameState, id: string): boolean {
   state.plots = data.plots;
   state.factories = data.factories;
   state.activeIsland = id;
+  ensureExpansionPlots(state);
   return true;
 }

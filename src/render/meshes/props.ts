@@ -326,3 +326,267 @@ export function makeCrateStack(seed: number): THREE.Group {
   bakeStatic(g);
   return g;
 }
+
+/**
+ * 草垛：三只叠在一起，带两道捆绳。
+ * 它是农田与牧场之间最有效的“有人在干活”符号，也让大片草地有了暖色块。
+ */
+export function makeHayBale(seed: number): THREE.Group {
+  const rng = mulberry32(seed);
+  const g = new THREE.Group();
+  const straw = 0xe3b95c;
+  const strawDark = 0xc99a3f;
+  for (let i = 0; i < 3; i++) {
+    const r = 0.2 + rng() * 0.04;
+    const bale = new THREE.Mesh(
+      new THREE.CylinderGeometry(r, r, 0.42 + rng() * 0.1, 9),
+      mat(i === 1 ? strawDark : straw),
+    );
+    bale.rotation.z = Math.PI / 2;
+    bale.rotation.y = rng() * 0.4;
+    bale.position.set(0, r + i * 0.4, (rng() - 0.5) * 0.08);
+    bale.castShadow = true;
+    g.add(bale);
+    for (const x of [-0.16, 0.16]) {
+      const band = new THREE.Mesh(
+        new THREE.TorusGeometry(r * 0.92, 0.012, 4, 9),
+        mat(0x9c7443),
+      );
+      band.rotation.y = Math.PI / 2;
+      band.position.set(x, r + i * 0.4, 0);
+      g.add(band);
+    }
+  }
+  bakeStatic(g);
+  return g;
+}
+
+/** 蜂箱：三层木箱 + 小屋顶 + 出入口，旁边可以配花丛。 */
+export function makeBeehive(seed: number): THREE.Group {
+  const rng = mulberry32(seed);
+  const g = new THREE.Group();
+  const wood = 0xd8b47a;
+  const woodDark = 0xb08a58;
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.08, 0.26), mat(woodDark));
+  base.position.y = 0.04;
+  g.add(base);
+  for (let i = 0; i < 3; i++) {
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.13, 0.24), mat(i % 2 ? woodDark : wood));
+    box.position.y = 0.15 + i * 0.15;
+    box.castShadow = true;
+    g.add(box);
+  }
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(0.21, 0.12, 4), mat(0x8a6a48));
+  roof.rotation.y = Math.PI / 4;
+  roof.position.y = 0.66;
+  g.add(roof);
+  const hole = new THREE.Mesh(new THREE.CircleGeometry(0.03, 8), mat(0x3b2a1d));
+  hole.position.set(0, 0.2, 0.126);
+  g.add(hole);
+  // 小支架，蜂箱不直接坐在草里
+  for (const [x, z] of [[-0.1, -0.1], [0.1, -0.1], [-0.1, 0.1], [0.1, 0.1]]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.08, 0.03), mat(woodDark));
+    leg.position.set(x, 0.04, z);
+    g.add(leg);
+  }
+  bakeStatic(g);
+  void rng;
+  return g;
+}
+
+/** 一只小鸡：白/黄两色身体、红冠、橙喙。三四只放一起就有农场感。 */
+export function makeChicken(seed: number): THREE.Group {
+  const rng = mulberry32(seed);
+  const g = new THREE.Group();
+  const bodyColor = rng() > 0.45 ? 0xfff8e8 : 0xf3d78f;
+  const body = new THREE.Mesh(new THREE.IcosahedronGeometry(0.12, 0), mat(bodyColor));
+  body.scale.set(0.9, 0.85, 1.25);
+  body.position.y = 0.13;
+  body.castShadow = true;
+  g.add(body);
+  const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.075, 0), mat(bodyColor));
+  head.position.set(0, 0.24, 0.1);
+  g.add(head);
+  const beak = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.06, 4), mat(0xe8a23c));
+  beak.rotation.x = Math.PI / 2;
+  beak.position.set(0, 0.23, 0.18);
+  g.add(beak);
+  const comb = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.06, 4), mat(0xd4513f));
+  comb.position.set(0, 0.31, 0.09);
+  g.add(comb);
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.14, 4), mat(0xf7efe0));
+  tail.rotation.x = -0.9;
+  tail.position.set(0, 0.18, -0.13);
+  g.add(tail);
+  bakeStatic(g);
+  g.scale.setScalar(0.85 + rng() * 0.35);
+  return g;
+}
+
+/** 晾衣绳：两根木桩 + 一道绳 + 三块布，生活气比任何装饰都强。 */
+export function makeClothesline(seed: number, len = 1.5): THREE.Group {
+  const rng = mulberry32(seed);
+  const g = new THREE.Group();
+  for (const x of [-len / 2, len / 2]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.75, 0.05), mat(0xb08a58));
+    post.position.set(x, 0.375, 0);
+    post.castShadow = true;
+    g.add(post);
+  }
+  const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, len, 4), mat(0xe9dfc8));
+  rope.rotation.z = Math.PI / 2;
+  rope.position.y = 0.7;
+  g.add(rope);
+  const cloths = [0xe88b7a, 0x9fc9df, 0xf3d78f];
+  for (let i = 0; i < 3; i++) {
+    const cloth = new THREE.Mesh(
+      new THREE.BoxGeometry(0.22 + rng() * 0.1, 0.26 + rng() * 0.12, 0.012),
+      mat(cloths[i]),
+    );
+    cloth.position.set(-0.38 + i * 0.38, 0.58, 0.01);
+    cloth.rotation.z = (rng() - 0.5) * 0.12;
+    cloth.castShadow = true;
+    g.add(cloth);
+  }
+  bakeStatic(g);
+  return g;
+}
+
+/** 小温室：木框 + 半透玻璃 + 一排花，放在农田旁是“精致农业”的视觉注脚。 */
+export function makeGreenhouse(seed: number): THREE.Group {
+  const rng = mulberry32(seed);
+  const g = new THREE.Group();
+  const w = 1.35;
+  const d = 0.95;
+  const h = 0.62;
+  const frame = 0x8d6a45;
+  // 石基
+  const base = new THREE.Mesh(new THREE.BoxGeometry(w + 0.12, 0.1, d + 0.12), mat(getPalette().rock));
+  base.position.y = 0.05;
+  base.receiveShadow = true;
+  g.add(base);
+  // 玻璃房体
+  const glass = new THREE.Mesh(
+    new THREE.BoxGeometry(w, h, d),
+    matOwn(0xcdeef2, { transparent: true, opacity: 0.32, depthWrite: false, roughness: 0.2 }),
+  );
+  glass.position.y = 0.1 + h / 2;
+  g.add(glass);
+  // 木框：四角 + 顶梁
+  for (const [x, z] of [[-w / 2, -d / 2], [w / 2, -d / 2], [-w / 2, d / 2], [w / 2, d / 2]]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, h, 0.05), mat(frame));
+    post.position.set(x, 0.1 + h / 2, z);
+    post.castShadow = true;
+    g.add(post);
+  }
+  for (const y of [0.1, 0.1 + h * 0.55, 0.1 + h]) {
+    for (const [x, z, ww, dd] of [[0, -d / 2, w, 0.045], [0, d / 2, w, 0.045], [-w / 2, 0, 0.045, d], [w / 2, 0, 0.045, d]] as const) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(ww, 0.045, dd), mat(frame));
+      bar.position.set(x, y, z);
+      g.add(bar);
+    }
+  }
+  // 双坡玻璃屋顶
+  for (const sign of [-1, 1]) {
+    const roof = new THREE.Mesh(
+      new THREE.BoxGeometry(w * 0.62, 0.03, d + 0.1),
+      matOwn(0xd9f2f3, { transparent: true, opacity: 0.38, depthWrite: false }),
+    );
+    roof.position.set(sign * w * 0.23, 0.1 + h + 0.14, 0);
+    roof.rotation.z = sign * 0.42;
+    g.add(roof);
+  }
+  // 花：在屋里与屋外各摆一排
+  const colors = [0xf0687a, 0xffd45e, 0xc48ae0, 0xf79a48];
+  for (let i = 0; i < 7; i++) {
+    const bloom = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.05 + rng() * 0.03, 0),
+      mat(colors[i % colors.length]),
+    );
+    bloom.position.set(-w / 2 + 0.12 + (i / 6) * (w - 0.24), 0.28, (rng() - 0.5) * 0.4);
+    g.add(bloom);
+  }
+  bakeStatic(g);
+  return g;
+}
+
+/** 热气球：漂在岛上方，是“云上”题材最直给的一张名片。 */
+export function makeBalloon(seed: number): THREE.Group {
+  const rng = mulberry32(seed);
+  const g = new THREE.Group();
+  const colors = [0xe07a5f, 0xf6e7c9, 0x5aa9b8, 0xf3c969];
+  const R = 1.45;
+  for (let i = 0; i < 8; i++) {
+    const phi = (i / 8) * Math.PI * 2;
+    const gore = new THREE.Mesh(
+      new THREE.SphereGeometry(R, 6, 10, phi, Math.PI / 4),
+      mat(colors[i % colors.length]),
+    );
+    // 把球体下端收窄成热气球的水滴形
+    gore.scale.set(1, 1.08, 1);
+    gore.position.y = 0.2;
+    gore.castShadow = true;
+    g.add(gore);
+  }
+  // 球顶与底口
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.25, 10), mat(0xe07a5f));
+  cap.position.y = R + 0.3;
+  g.add(cap);
+  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.32, 0.18, 10), mat(0x7c5b3f));
+  skirt.position.y = -R * 0.72;
+  g.add(skirt);
+  // 吊篮与绳索
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.55, 3), mat(0x6f4a2f));
+    rope.position.set(Math.cos(a) * 0.34, -R * 0.98, Math.sin(a) * 0.34);
+    g.add(rope);
+  }
+  const basket = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.28, 0.42), mat(0xa9794f));
+  basket.position.y = -R * 1.2;
+  basket.castShadow = true;
+  g.add(basket);
+  const rim = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.05, 0.48), mat(0x8d6a45));
+  rim.position.y = -R * 1.05;
+  g.add(rim);
+  g.userData.phase = rng() * 10;
+  return g;
+}
+
+/** 绵羊：云朵一样的身体 + 深色脸和腿。放在草坡上，画面的“活物”密度立刻上来。 */
+export function makeSheep(seed: number): THREE.Group {
+  const rng = mulberry32(seed);
+  const g = new THREE.Group();
+  const wool = new THREE.IcosahedronGeometry(0.22, 0);
+  for (const [x, y, z, s] of [
+    [0, 0.3, 0, 1], [-0.12, 0.32, 0.08, 0.72], [0.13, 0.29, -0.03, 0.68],
+    [0.02, 0.4, -0.05, 0.62],
+  ] as const) {
+    const puff = new THREE.Mesh(wool.clone(), mat(0xf7f2e4));
+    puff.position.set(x, y, z);
+    puff.scale.setScalar(s);
+    puff.castShadow = true;
+    g.add(puff);
+  }
+  const face = new THREE.Mesh(new THREE.IcosahedronGeometry(0.1, 0), mat(0x4a4039));
+  face.scale.set(0.9, 0.9, 1.2);
+  face.position.set(0, 0.34, 0.22);
+  g.add(face);
+  for (const [x, z] of [[-0.11, 0.12], [0.11, 0.12], [-0.11, -0.12], [0.11, -0.12]] as const) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.22, 0.05), mat(0x4a4039));
+    leg.position.set(x, 0.11, z);
+    g.add(leg);
+  }
+  const earL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.035, 0.05), mat(0x4a4039));
+  earL.position.set(-0.13, 0.38, 0.2);
+  earL.rotation.z = 0.4;
+  g.add(earL);
+  const earR = earL.clone();
+  earR.position.x = 0.13;
+  earR.rotation.z = -0.4;
+  g.add(earR);
+  bakeStatic(g);
+  g.rotation.y = rng() * Math.PI * 2;
+  g.scale.setScalar(0.9 + rng() * 0.25);
+  return g;
+}

@@ -78,70 +78,200 @@ export function jitter(
   return geo;
 }
 
-/** 浮空岛：草皮 + 土层 + 扰动过的岩锥，底部收成尖。
- *  radius 可调：建筑越往外排，岛屿就整圈跟着长大，避免房子悬空或踩在小块地基上。 */
+/**
+ * 岛缘轮廓：完美圆盘是“程序生成”最刺眼的破绽。
+ * 两个不同频率的正弦叠加出缓慢凹凸，像被草甸和岩块啃过一圈；
+ * 幅度控制在 ±4% 内，建筑落位（r≤7.6）仍然绝对安全。
+ */
+export function coastR(a: number, R = ISLAND_RADIUS): number {
+  const w = 0.038 * Math.sin(a * 3 + 0.7) + 0.022 * Math.sin(a * 7 + 2.1);
+  return R * (1 + w);
+}
+
+/** 上层村落的缓坡高度：后半个岛缓缓抬起，到岛缘再落回 0，侧壁不用改。 */
+export function islandHeight(x: number, z: number): number {
+  const r = Math.hypot(x, z);
+  const t = Math.max(0, Math.min(1, (z + 0.7) / -5.6));
+  const back = t * t * (3 - 2 * t);
+  const e = Math.max(0, Math.min(1, (8.9 - r) / 1.6));
+  const edge = e * e * (3 - 2 * e);
+  return 0.98 * back * edge;
+}
+
+/**
+ * 浮空岛：草皮 + 草皮翻边 + 分层岩壁，底部收成尖。
+ *
+ * v2 把“三个圆柱叠蛋糕”换成真正的地层：
+ *  - 侧壁由一圈圈地层连成一体，顶点色带出沉积岩的横向条带；
+ *  - 岛缘破圆，顶盖与侧壁共用同一条海岸线；
+ *  - 草皮向下翻出 0.18，压住第一层土壤——微缩模型的重量感全在这一翻边上。
+ */
 export function makeIsland(seed = 20260829, radius = ISLAND_RADIUS): THREE.Group {
   const rng = mulberry32(seed);
   const R = radius;
   const g = new THREE.Group();
+  const SEG = 56;
 
-  const topH = 0.7;
-  const soilH = 1.3;
-  const rockH = 2.2;
-  const tipH = 3.6;
-  // 各层交界高度（世界坐标）。交界环两侧顶点必须完全重合，
-  // 段数统一 16 + 等量扰动 + 坐标哈希，三层之间才能严丝合缝。
-  const ySoil = -topH; // 草皮/土层
-  const yRock = -topH - soilH; // 土层/岩层
-  const yTip = yRock - rockH; // 岩层/底尖
+  // ---- 顶盖：有机轮廓的草甸坡地 ----
+  // 不再是一张平盘：后半个岛用平滑缓坡抬起，住宅在上、农田在下。
+  // 用同心环网格而不是单圈扇形，坡面才有足够顶点承载光影。
+  const capPos: number[] = [];
+  const capCol: number[] = [];
+  const capIdx: number[] = [];
+  const grass = new THREE.Color(getPalette().grass);
+  const RINGS = 13;
+  for (let ri = 0; ri <= RINGS; ri++) {
+    const rr = (ri / RINGS);
+    const ringN = ri === 0 ? 1 : SEG;
+    for (let i = 0; i < ringN; i++) {
+      const a = (i / SEG) * Math.PI * 2;
+      const rad = coastR(a, R) * 0.998 * rr;
+      const x = Math.cos(a) * rad;
+      const z = Math.sin(a) * rad;
+      const y = islandHeight(x, z) - 0.004;
+      capPos.push(x, y, z);
+      const k = 0.94 + 0.11 * (0.5 + 0.5 * Math.sin(a * 5.0 + 1.3)) + (ri / RINGS) * 0.015;
+      capCol.push(grass.r * k, grass.g * k, grass.b * k);
+    }
+  }
+  // 中心点单独一个顶点
+  const centerIdx = 0;
+  const ringStart = (ri: number) => 1 + (ri - 1) * SEG;
+  for (let i = 0; i < SEG; i++) {
+    capIdx.push(centerIdx, ringStart(1) + ((i + 1) % SEG), ringStart(1) + i);
+  }
+  for (let ri = 1; ri < RINGS; ri++) {
+    const a0 = ringStart(ri);
+    const b0 = ringStart(ri + 1);
+    for (let i = 0; i < SEG; i++) {
+      const i2 = (i + 1) % SEG;
+      capIdx.push(a0 + i, b0 + i, a0 + i2);
+      capIdx.push(a0 + i2, b0 + i, b0 + i2);
+    }
+  }
+  const capGeo = new THREE.BufferGeometry();
+  capGeo.setAttribute('position', new THREE.Float32BufferAttribute(capPos, 3));
+  capGeo.setAttribute('color', new THREE.Float32BufferAttribute(capCol, 3));
+  capGeo.setIndex(capIdx);
+  capGeo.computeVertexNormals();
+  {
+    const nrm = capGeo.attributes.normal;
+    for (let i = 0; i < nrm.count; i++) {
+      if (nrm.getY(i) < 0) nrm.setXYZ(i, -nrm.getX(i), -nrm.getY(i), -nrm.getZ(i));
+    }
+    nrm.needsUpdate = true;
+  }
+  const cap = new THREE.Mesh(capGeo, matOwn(0xffffff, { vertexColors: true, roughness: 1 }));
+  cap.receiveShadow = true;
+  g.add(cap);
 
-  // 几何体一律先平移到世界坐标再扰动：哈希按「同一个点」匹配偏移
-  const top = new THREE.Mesh(
-    jitter(new THREE.CylinderGeometry(R, R * 0.97, topH, 16).translate(0, -topH / 2, 0), 0),
-    // 顶面用独立材质挂程序化肌理：不能直接用共享的 mat(grass)，
-    // 否则所有同色物件（树冠等）都会被贴上草皮噪点。
-    mat(getPalette().grass),
-  );
-  top.receiveShadow = true;
-  g.add(top);
+  // ---- 侧壁：一条条“地层”环 ----
+  type Stratum = { y: number; r: number; c: number; v: number };
+  const soil = getPalette().soil;
+  const soilDark = getPalette().soilDark;
+  const rock = getPalette().rock;
+  const rockDark = getPalette().rockDark;
+  const grassDark = new THREE.Color(getPalette().grassDark);
+  const grassDarkDeep = grassDark.clone().offsetHSL(0, -0.02, -0.02);
+  const soilDeep = new THREE.Color(soilDark).offsetHSL(0, 0, -0.045);
+  const rockDeep = new THREE.Color(rock).offsetHSL(0, 0, -0.03);
+  const rockTip = new THREE.Color(rockDark).offsetHSL(0, 0, -0.09);
+  const strata: Stratum[] = [
+    { y: 0.012, r: 1.0, c: new THREE.Color(getPalette().grass).getHex(), v: 0.03 },
+    // 草皮翻边：先外扩再下折，边缘才有厚度
+    { y: -0.09, r: 1.008, c: grassDark.getHex(), v: 0.04 },
+    { y: -0.2, r: 0.998, c: grassDarkDeep.getHex(), v: 0.03 },
+    { y: -0.26, r: 0.988, c: soil, v: 0.04 },
+    { y: -0.62, r: 0.962, c: soilDark, v: 0.07 },
+    { y: -0.9, r: 0.948, c: soil, v: 0.04 },
+    { y: -1.0, r: 0.942, c: soilDeep.getHex(), v: 0.03 },
+    { y: -1.42, r: 0.9, c: rock, v: 0.055 },
+    { y: -1.52, r: 0.894, c: rockDark, v: 0.035 },
+    { y: -2.15, r: 0.79, c: rock, v: 0.05 },
+    { y: -2.26, r: 0.778, c: rockDark, v: 0.04 },
+    { y: -3.05, r: 0.57, c: rockDeep.getHex(), v: 0.05 },
+    { y: -3.8, r: 0.33, c: rockDark, v: 0.04 },
+    { y: -4.55, r: 0.0, c: rockTip.getHex(), v: 0.02 },
+  ];
 
-  // 顶环不扰动：草皮底环没扰动，土层顶环保持原位才能对齐（顶面藏在草皮下）
-  const soil = new THREE.Mesh(
-    jitter(
-      new THREE.CylinderGeometry(R * 0.97, R * 0.82, soilH, 16).translate(0, ySoil - soilH / 2, 0),
-      0.5,
-      ySoil,
-    ),
-    mat(getPalette().soilDark),
-  );
-  g.add(soil);
+  const wallPos: number[] = [];
+  const wallCol: number[] = [];
+  const wallIdx: number[] = [];
+  for (let ri = 0; ri < strata.length; ri++) {
+    const st = strata[ri];
+    const base = new THREE.Color(st.c);
+    for (let i = 0; i < SEG; i++) {
+      const a = (i / SEG) * Math.PI * 2;
+      const rr = coastR(a, R) * st.r * (ri >= 4 ? 1 + Math.sin(a * 11 + ri * 2.1) * 0.012 : 1);
+      // 噪声只随角度变化，环与环之间不会撕裂
+      const n = Math.sin(a * 9 + ri * 1.7) * 0.5 + Math.sin(a * 17 - ri * 0.8) * 0.5;
+      const vy = st.y + (ri > 2 ? n * 0.018 : 0);
+      wallPos.push(Math.cos(a) * rr, vy, Math.sin(a) * rr);
+      const shade = 1 + n * st.v;
+      const c = base.clone();
+      if (ri <= 3) c.lerp(grassDark, 0.22);
+      wallCol.push(c.r * shade, c.g * shade, c.b * shade);
+    }
+  }
+  for (let ri = 0; ri < strata.length - 1; ri++) {
+    const a0 = ri * SEG;
+    const b0 = (ri + 1) * SEG;
+    for (let i = 0; i < SEG; i++) {
+      const i2 = (i + 1) % SEG;
+      wallIdx.push(a0 + i, a0 + i2, b0 + i);
+      wallIdx.push(a0 + i2, b0 + i2, b0 + i);
+    }
+  }
+  const wallGeo = new THREE.BufferGeometry();
+  wallGeo.setAttribute('position', new THREE.Float32BufferAttribute(wallPos, 3));
+  wallGeo.setAttribute('color', new THREE.Float32BufferAttribute(wallCol, 3));
+  wallGeo.setIndex(wallIdx);
+  wallGeo.computeVertexNormals();
+  // 统一把岩壁法线翻到外侧：否则背光面会整片发黑，像一圈焦土
+  {
+    const pos = wallGeo.attributes.position;
+    const nrm = wallGeo.attributes.normal;
+    for (let i = 0; i < pos.count; i++) {
+      const nx = nrm.getX(i);
+      const nz = nrm.getZ(i);
+      if (nx * pos.getX(i) + nz * pos.getZ(i) < 0) {
+        nrm.setXYZ(i, -nx, -nrm.getY(i), -nz);
+      }
+    }
+    nrm.needsUpdate = true;
+  }
+  const wall = new THREE.Mesh(wallGeo, matVC());
+  wall.receiveShadow = true;
+  wall.castShadow = true;
+  g.add(wall);
 
-  const rock = new THREE.Mesh(
-    jitter(
-      new THREE.CylinderGeometry(R * 0.82, R * 0.5, rockH, 16).translate(0, yRock - rockH / 2, 0),
-      0.5,
-    ),
-    mat(getPalette().rock),
-  );
-  g.add(rock);
+  // 苔痕：只贴在岩壁上部，绝不外凸成“漂浮石块”
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2 + rng() * 0.5;
+    const y = -range(rng, 0.15, 0.85);
+    const rr = coastR(a, R) * range(rng, 0.96, 0.995);
+    const moss = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(range(rng, 0.12, 0.28), 0),
+      mat(getPalette().grassDark),
+    );
+    moss.scale.set(1.6, 0.18, 0.7);
+    moss.position.set(Math.cos(a) * rr, y, Math.sin(a) * rr);
+    moss.rotation.y = -a;
+    g.add(moss);
+  }
 
-  // 底尖：顶环 R*0.5 与岩层底环重合、向下收成一点。
-  // 用 (R*0.5→0) 的圆柱而不是翻转的 Cone——rotateX(π) 会把交界环
-  // 在 z 向镜像（z→-z），段数对齐也对不上，缝就是这么来的。
-  const tip = new THREE.Mesh(
-    jitter(new THREE.CylinderGeometry(R * 0.5, 0, tipH, 16).translate(0, yTip - tipH / 2, 0), 0.5),
-    mat(getPalette().rockDark),
-  );
-  g.add(tip);
-
-  // 岛缘一圈小岩块，打破完美圆形的呆板
-  for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2 + rng() * 0.5;
-    const r = R * range(rng, 0.86, 0.94);
-    const s = range(rng, 0.18, 0.34);
-    const chunk = new THREE.Mesh(jitter(new THREE.IcosahedronGeometry(s, 0), s * 0.4), mat(getPalette().rock));
-    chunk.position.set(Math.cos(a) * r, -range(rng, 0.1, 0.45), Math.sin(a) * r);
+  // 岛缘小岩块：只露一半，像从草皮里长出来
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2 + rng() * 0.45;
+    const rr = coastR(a, R) * range(rng, 0.9, 0.97);
+    const sc = range(rng, 0.14, 0.3);
+    const chunk = new THREE.Mesh(
+      jitter(new THREE.IcosahedronGeometry(sc, 0), sc * 0.45),
+      mat(rng() > 0.55 ? rock : rockDark),
+    );
+    chunk.position.set(Math.cos(a) * rr, -range(rng, 0.08, 0.32), Math.sin(a) * rr);
     chunk.rotation.set(rng() * 3, rng() * 3, rng() * 3);
+    chunk.castShadow = true;
     g.add(chunk);
   }
 
@@ -448,6 +578,44 @@ export function makePond(seed = 13579): THREE.Group {
     g.add(pad);
   }
 
+  // 芦苇与香蒲：沿水岸站一圈，给水面一个“野生边缘”
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2 + rng() * 0.4;
+    const rr = R + 0.08 + rng() * 0.12;
+    const h = range(rng, 0.34, 0.6);
+    const stem = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.012, 0.018, h, 4),
+      mat(getPalette().leafDeep),
+    );
+    stem.position.set(Math.cos(a) * rr, 0.14 + h / 2, Math.sin(a) * rr);
+    stem.rotation.z = range(rng, -0.12, 0.12);
+    g.add(stem);
+    const tip = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.028, 0.028, 0.12, 5),
+      mat(0x8a5a3b),
+    );
+    tip.position.set(stem.position.x, 0.14 + h + 0.03, stem.position.z);
+    g.add(tip);
+  }
+
+  // 锦鲤：贴着水面画三道橙白影子，偶尔摆尾
+  const koi: { mesh: THREE.Mesh; phase: number; r: number; speed: number }[] = [];
+  for (let i = 0; i < 3; i++) {
+    const body = new THREE.Mesh(
+      new THREE.SphereGeometry(0.07, 6, 4),
+      mat(i === 0 ? 0xf07a45 : i === 1 ? 0xfff1d6 : 0xe35a3f),
+    );
+    body.scale.set(1.7, 0.28, 0.7);
+    body.position.y = waterBaseY + 0.095;
+    g.add(body);
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.13, 4), mat(0xf7e6c8));
+    tail.rotation.z = Math.PI / 2;
+    tail.position.set(-0.12, 0, 0);
+    body.add(tail);
+    koi.push({ mesh: body, phase: rng() * Math.PI * 2, r: 0.35 + rng() * 0.35, speed: 0.35 + rng() * 0.25 });
+  }
+  g.userData.koi = koi;
+
   // —— 活水感：扩散水波 + 中心喷泉粒子 ——
   // 三层错位的圆环，周期性放大并淡出，像水面被风或鱼轻轻搅动
   const ripples: THREE.Mesh[] = [];
@@ -677,7 +845,8 @@ export function makeGroundOverlay(
   const base = new THREE.Color(baseColor ?? getPalette().grass);
 
   const push = (x: number, z: number, mottle: number) => {
-    positions.push(x, 0, z);
+    const y = shape === 'round' ? islandHeight(x, z) : 0;
+    positions.push(x, y, z);
     // 极轻微的明暗差，避免整块死平
     const k = 1 + (mottle - 0.5) * 0.09;
     colors.push(base.r * k, base.g * k, base.b * k);
@@ -863,4 +1032,61 @@ export function makeBush(seed: number): THREE.Group {
   }
   bakeStatic(g);
   return g;
+}
+
+let contactTex: THREE.CanvasTexture | null = null;
+
+/** 柔边圆形接触阴影贴图：一整片草叶上的阴影靠它把物体“按”在地上。 */
+function contactShadowTexture(): THREE.CanvasTexture {
+  if (contactTex) return contactTex;
+  const size = 128;
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d');
+  if (ctx) {
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.48, 'rgba(255,255,255,0.72)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  return tex;
+}
+
+/** 把所有投影体烘成一张 InstancedMesh：一个 draw call 给全岛补上接触阴影。 */
+export function makeContactShadows(
+  casters: AoCaster[],
+  heightAt: (x: number, z: number) => number,
+): THREE.InstancedMesh {
+  const geo = new THREE.PlaneGeometry(1, 1);
+  geo.rotateX(-Math.PI / 2);
+  const mat = new THREE.MeshBasicMaterial({
+    map: contactShadowTexture(),
+    color: 0x243128,
+    transparent: true,
+    opacity: 0.3,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
+  });
+  const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, casters.length));
+  const dummy = new THREE.Object3D();
+  for (let i = 0; i < casters.length; i++) {
+    const c = casters[i];
+    dummy.position.set(c.x, heightAt(c.x, c.z) + 0.055, c.z);
+    const s = c.r * 2.2;
+    dummy.scale.set(s, 1, s);
+    dummy.rotation.set(0, (i * 1.7) % (Math.PI * 2), 0);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+  }
+  mesh.count = casters.length;
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.renderOrder = 3;
+  mesh.frustumCulled = false;
+  return mesh;
 }
