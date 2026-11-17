@@ -156,6 +156,7 @@ export function makeHouse(
   g.add(cornice);
 
   // 顶层屋顶：按户型分三种收法
+  let roofKind: RoofKind = 'hip';
   const topY = floors * floorH;
   const rh = range(rng, 0.45, 0.7);
   if (style === 'town') {
@@ -202,13 +203,17 @@ export function makeHouse(
       col.castShadow = true;
       g.add(col);
     }
-    const roof = roofOf(w + 0.18, rh, d + 0.18, p.roof);
-    roof.position.y = topY + rh / 2;
+    const roofPick: RoofKind = rng() < 0.42 ? 'hip' : rng() < 0.72 ? 'gable' : 'shed';
+    roofKind = roofPick;
+    const roof = buildRoof(roofPick, w + 0.18, rh, d + 0.18, p.roof, p.body);
+    roof.position.y = topY;
     g.add(roof);
   } else {
     // 坡顶小屋（尺寸外扩 0.16：出檐是"像房子"的廉价大招）
-    const roof = roofOf(w + 0.16, rh, d + 0.16, p.roof);
-    roof.position.y = topY + rh / 2;
+    const roofPick2: RoofKind = rng() < 0.4 ? 'hip' : rng() < 0.75 ? 'gable' : 'shed';
+    roofKind = roofPick2;
+    const roof = buildRoof(roofPick2, w + 0.16, rh, d + 0.16, p.roof, p.body);
+    roof.position.y = topY;
     g.add(roof);
   }
 
@@ -224,8 +229,8 @@ export function makeHouse(
     g.add(dWin);
   }
 
-  // 屋顶尖饰：四个坡顶交汇处一个小球，剪影不再"一刀切"结束
-  if (style !== 'town') {
+  // 屋顶尖饰：只在有明确脊点（四坡/双坡）时加，单坡加了会浮空
+  if (style !== 'town' && roofKind !== 'shed') {
     const finial = new THREE.Mesh(
       new THREE.IcosahedronGeometry(0.055, 0),
       mat(new THREE.Color(p.roof).lerp(new THREE.Color(0xffffff), 0.25).getHex()),
@@ -847,3 +852,59 @@ export function makeTownBuilding(
   g.userData.lights = lights;
   return { group: g, lights };
 }
+
+/**
+ * 屋顶形态库：四坡（hip）/ 双坡（gable）/ 单坡（shed）。
+ * 三种剪影差别明显，按 seed 分配后，同一条街的房子不再是复制粘贴。
+ */
+type RoofKind = 'hip' | 'gable' | 'shed';
+
+function buildRoof(
+  kind: RoofKind,
+  w: number,
+  rh: number,
+  d: number,
+  roofColor: number,
+  bodyColor: number,
+): THREE.Group {
+  const g = new THREE.Group();
+  if (kind === 'shed') {
+    const slope = Math.hypot(d, rh);
+    const angle = Math.atan2(rh, d);
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(w, 0.07, slope), mat(roofColor));
+    slab.position.set(0, rh / 2, 0);
+    slab.rotation.x = angle;
+    slab.castShadow = true;
+    g.add(slab);
+    return g;
+  }
+  if (kind === 'gable') {
+    const halfD = d / 2;
+    const slope = Math.hypot(halfD, rh);
+    const angle = Math.atan2(rh, halfD);
+    for (const dir of [1, -1] as const) {
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(w, 0.07, slope), mat(roofColor));
+      slab.position.set(0, rh / 2, (dir * halfD) / 2);
+      slab.rotation.x = dir * angle;
+      slab.castShadow = true;
+      g.add(slab);
+    }
+    // 两端山墙三角：补上开口，否则侧面能看进屋顶内部
+    const shape = new THREE.Shape();
+    shape.moveTo(-halfD, 0);
+    shape.lineTo(halfD, 0);
+    shape.lineTo(0, rh);
+    shape.closePath();
+    for (const dir of [1, -1] as const) {
+      const triGeo = new THREE.ShapeGeometry(shape);
+      triGeo.rotateY(Math.PI / 2);
+      const tri = new THREE.Mesh(triGeo, mat(bodyColor));
+      tri.position.set((dir * w) / 2, 0, 0);
+      g.add(tri);
+    }
+    return g;
+  }
+  g.add(roofOf(w, rh, d, roofColor));
+  return g;
+}
+
