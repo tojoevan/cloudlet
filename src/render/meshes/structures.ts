@@ -7,7 +7,7 @@ import { mat, matOwn } from '../mat';
 import { getPalette, getHouses } from '../palette';
 import { bakeStatic } from '../bake';
 import { makeFlowerBed, makeLamp, makeMailbox, makePlanter } from './props';
-import { mulberry32, range } from '../rng';
+import { mulberry32, pick, range } from '../rng';
 import { makeTree } from './terrain';
 
 export interface StructureMesh {
@@ -45,220 +45,302 @@ export function makeHouse(
   level = 1,
 ): StructureMesh {
   const rng = mulberry32(seed);
-  // 没指定配色就按 seed 抽一组——住宅要各色各样，才像住了一条街的人家
   const houses = getHouses();
   const p =
     palette ?? houses[Math.floor(rng() * houses.length)] ?? { body: getPalette().cloud, roof: 0xe07a5f, accent: getPalette().water };
   const g = new THREE.Group();
   const lights: THREE.MeshStandardMaterial[] = [];
 
-  // 只保留两种坡顶户型：带阁楼的小屋 / 带门廊的独栋。
-  // 不再做平顶联排——那会读成公寓楼，和浮岛上的坡屋顶村落不是一套语言。
-  const styleRoll = rng();
-  const style: 'gable' | 'villa' = styleRoll < 0.62 ? 'gable' : 'villa';
-  const w = range(rng, 1.0, 1.35) * (style === 'villa' ? 1.1 : 1);
-  const d = range(rng, 1.0, 1.28);
-  const floorH = range(rng, 0.82, 1.02);
-  // 升级不靠“往上叠盒子”：最多两层，Lv2 长阁楼/老虎窗，Lv3 长侧翼。
-  // 这样屋子的轮廓始终是“坡屋顶农舍”，不会突然变成公寓塔楼。
+  // 两种真正不同的农舍原型：山墙农舍 / 带门廊的独栋。
+  // 不再做平顶联排，也不做三层公寓。
+  const style: 'gable' | 'porch' = rng() < 0.62 ? 'gable' : 'porch';
+  const w = range(rng, 1.18, 1.48) * (style === 'porch' ? 1.08 : 1);
+  const d = range(rng, 1.02, 1.26);
+  const floorH = range(rng, 0.86, 0.96);
   const floors = level >= 3 ? 2 : 1;
-  const roofBoost = 1 + Math.max(0, Math.min(level, 3) - 1) * 0.16;
+  const roofH = range(rng, 0.72, 0.94) * (level >= 2 ? 1.08 : 1);
 
-  // 夜间点亮的窗（整栋共用一个材质，便于昼夜系统统一控制）
-  const winMat = matOwn(p.accent);
+  const timber = mat(0x6f4b34);
+  const timberLight = mat(0x9a6d48);
+  const trim = mat(new THREE.Color(p.body).lerp(new THREE.Color(0xffffff), 0.58).getHex());
+  const stone = mat(getPalette().rock);
+  const stoneDark = mat(getPalette().rockDark);
+  const shutterColor = pick(rng, [0x4f7f78, 0xb8664f, 0x7d9165, 0x9a6c8d]);
+  const shutter = mat(shutterColor);
+  // 白天是偏冷的天光玻璃，入夜才由昼夜系统点亮成暖黄；
+  // 不要直接用 accent 当玻璃色，否则白天像一排亮着的黄灯。
+  const winMat = matOwn(new THREE.Color(0x6fabbc).lerp(new THREE.Color(p.accent), 0.22).getHex());
   lights.push(winMat);
+  const lampMat = matOwn(0xffe2a4, { emissive: 0xffd38a, emissiveIntensity: 0 });
+  lights.push(lampMat);
 
-  // 石基座：房子不再"直接长在草里"，而是坐在一小圈石头上。
-  // 这是让建筑看起来「有重量」最便宜的一笔。
-  const plinth = new THREE.Mesh(
-    new THREE.BoxGeometry(w + 0.12, 0.16, d + 0.12),
-    mat(getPalette().rockDark),
-  );
-  plinth.position.y = 0.08;
+  // 石基座：不是一块平板，而是一圈有厚度的毛石
+  const plinth = new THREE.Mesh(new THREE.BoxGeometry(w + 0.16, 0.18, d + 0.16), stoneDark);
+  plinth.position.y = 0.09;
   plinth.receiveShadow = true;
   g.add(plinth);
+  for (let i = 0; i < 6; i++) {
+    const sx = -w / 2 + (i / 5) * w + range(rng, -0.03, 0.03);
+    const s = new THREE.Mesh(
+      new THREE.BoxGeometry(range(rng, 0.12, 0.22), range(rng, 0.07, 0.13), 0.06),
+      stone,
+    );
+    s.position.set(sx, range(rng, 0.04, 0.1), d / 2 + 0.1);
+    s.rotation.z = range(rng, -0.08, 0.08);
+    g.add(s);
+  }
 
+  // 楼体
   for (let f = 0; f < floors; f++) {
     const baseY = f * floorH;
-
-    // 楼层主体
-    const body = new THREE.Mesh(new THREE.BoxGeometry(w, floorH, d), mat(p.body));
+    const bodyColor = f === 0 ? new THREE.Color(p.body).lerp(new THREE.Color(0xffefd6), 0.34) : new THREE.Color(p.body).lerp(new THREE.Color(0xffefd6), 0.42);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(w, floorH, d), mat(bodyColor.getHex()));
     body.position.y = baseY + floorH / 2;
     body.castShadow = true;
     body.receiveShadow = true;
     g.add(body);
 
-    // 楼层之间的小檐（底层不加），让多层更像小屋而非光秃秃的柱子
     if (f > 0) {
-      const ledge = new THREE.Mesh(new THREE.BoxGeometry(w + 0.1, 0.07, d + 0.1), mat(p.roof));
-      ledge.position.y = baseY;
-      ledge.castShadow = true;
-      g.add(ledge);
-    }
-
-    // 窗：每层正面 + 侧面，抬到该层高度，避免与各层门共面 z-fighting
-    const winY = baseY + floorH * 0.62;
-    const winCount = rng() > 0.5 ? 2 : 1;
-    for (let i = 0; i < winCount; i++) {
-      const wx = (i - (winCount - 1) / 2) * 0.42;
-      // 窗框：比窗略大的浅色方块垫在后面，窗就有了"框"
-      const frame = new THREE.Mesh(
-        new THREE.BoxGeometry(0.24, 0.26, 0.045),
-        mat(new THREE.Color(p.body).lerp(new THREE.Color(0xffffff), 0.5).getHex()),
-      );
-      frame.position.set(wx, winY, d / 2 + 0.012);
-      g.add(frame);
-      const win = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.22, 0.06), winMat);
-      win.position.set(wx, winY, d / 2 + 0.02);
-      win.userData.noBake = true; // 窗户要单独做昼夜发光
-      g.add(win);
-      // 窗台花箱：一点点暖色，是"有人住"的关键细节
-      const box = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.07, 0.1), mat(p.roof));
-      box.position.set(wx, winY - 0.14, d / 2 + 0.05);
-      g.add(box);
-      const bloom = new THREE.Mesh(
-        new THREE.IcosahedronGeometry(0.05, 0),
-        mat(rng() > 0.5 ? 0xf0687a : 0xffd45e),
-      );
-      bloom.position.set(wx + (rng() - 0.5) * 0.14, winY - 0.1, d / 2 + 0.08);
-      g.add(bloom);
-    }
-    const side = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.22, 0.22), winMat);
-    side.position.set(w / 2 + 0.02, winY, 0);
-    side.userData.noBake = true;
-    g.add(side);
-
-    // 门只在底层，配一个出挑的小雨棚——正面立刻有"入口"这个视觉重点
-    if (f === 0) {
-      const door = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.42, 0.06), mat(p.roof));
-      door.position.set(0, 0.21, d / 2 + 0.02);
-      g.add(door);
-      const awning = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.2), mat(p.accent));
-      awning.position.set(0, 0.47, d / 2 + 0.11);
-      awning.rotation.x = -0.18;
-      awning.castShadow = true;
-      g.add(awning);
-      const step = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.06, 0.14), mat(getPalette().rock));
-      step.position.set(0, 0.03, d / 2 + 0.1);
-      g.add(step);
+      // 二层不叠“盒子”，而是比底层收进一点，形成挑檐下的阴影
+      const inset = new THREE.Mesh(new THREE.BoxGeometry(w + 0.08, 0.07, d + 0.08), timberLight);
+      inset.position.y = baseY;
+      g.add(inset);
     }
   }
-
-  // 檐口白线：屋顶与墙体之间一条浅色细带。
-  // 这是 2D 等距插画（Township 那种）里最常见的分隔手法，
-  // 在 3D 低多边形上加一条就能把"积木块"读成"画出来的房子"。
-  const cornice = new THREE.Mesh(
-    new THREE.BoxGeometry(w + 0.12, 0.055, d + 0.12),
-    mat(new THREE.Color(p.body).lerp(new THREE.Color(0xffffff), 0.55).getHex()),
-  );
-  cornice.position.y = floors * floorH + 0.02;
-  g.add(cornice);
-
-  // 顶层屋顶：按户型分三种收法
   const topY = floors * floorH;
-  const rh = range(rng, 0.45, 0.7) * roofBoost;
-  if (style === 'villa') {
-    // 独栋：门廊顶 + 两根柱子，前面形成一块"入户灰空间"
-    const porch = new THREE.Mesh(new THREE.BoxGeometry(w * 0.92, 0.07, 0.52), mat(p.roof));
-    porch.position.set(0, floorH * 0.96, d / 2 + 0.26);
-    porch.castShadow = true;
-    g.add(porch);
-    for (const px of [-w * 0.38, w * 0.38]) {
-      const col = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.045, 0.055, floorH * 0.96, 6),
-        mat(p.accent),
-      );
-      col.position.set(px, floorH * 0.48, d / 2 + 0.48);
-      col.castShadow = true;
-      g.add(col);
+
+  // 窗户：单个窗户 = 窗框 + 玻璃 + 百叶 + 花箱 + 十字窗棂
+  const windowUnit = (withBox = true): THREE.Group => {
+    const u = new THREE.Group();
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.34, 0.05), trim);
+    frame.position.z = 0.012;
+    u.add(frame);
+    const win = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.26, 0.055), winMat);
+    win.position.z = 0.035;
+    win.userData.noBake = true;
+    u.add(win);
+    const barV = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.26, 0.07), trim);
+    barV.position.z = 0.045;
+    u.add(barV);
+    const barH = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.018, 0.07), trim);
+    barH.position.z = 0.046;
+    u.add(barH);
+    for (const side of [-1, 1]) {
+      const sh = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.29, 0.035), shutter);
+      sh.position.set(side * 0.205, 0, 0.012);
+      sh.castShadow = true;
+      u.add(sh);
     }
-    const roofPick: RoofKind = rng() < 0.48 ? 'hip' : 'gable';
-    const roof = buildRoof(roofPick, w + 0.18, rh, d + 0.18, p.roof, p.body);
-    roof.position.y = topY;
-    g.add(roof);
-  } else {
-    // 坡顶小屋（尺寸外扩 0.16：出檐是"像房子"的廉价大招）
-    const roofPick2: RoofKind = rng() < 0.45 ? 'hip' : 'gable';
-    const roof = buildRoof(roofPick2, w + 0.16, rh, d + 0.16, p.roof, p.body);
-    roof.position.y = topY;
-    g.add(roof);
+    if (withBox) {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.09, 0.15), timberLight);
+      box.position.set(0, -0.19, 0.08);
+      u.add(box);
+      const bloomColors = [0xf0687a, 0xffd45e, 0xc48ae0, 0xffffff];
+      for (let i = 0; i < 3; i++) {
+        const bloom = new THREE.Mesh(
+          new THREE.IcosahedronGeometry(range(rng, 0.035, 0.055), 0),
+          mat(bloomColors[Math.floor(rng() * bloomColors.length)]),
+        );
+        bloom.position.set(-0.11 + i * 0.11, -0.14, 0.11);
+        u.add(bloom);
+      }
+    }
+    return u;
+  };
+  const addFrontWindow = (x: number, y: number, box = true) => {
+    const u = windowUnit(box);
+    u.position.set(x, y, d / 2 + 0.035);
+    g.add(u);
+  };
+  const addSideWindow = (side: 1 | -1, z: number, y: number) => {
+    const u = windowUnit(false);
+    u.position.set(side * (w / 2 + 0.03), y, z);
+    u.rotation.y = side * Math.PI / 2;
+    g.add(u);
+  };
+
+  // 底层：门在中间偏左，右边两扇窗；上层两扇窗
+  const doorX = 0;
+  const wx = Math.min(w * 0.31, w / 2 - 0.27);
+  addFrontWindow(-wx, floorH * 0.58);
+  addFrontWindow(wx, floorH * 0.58);
+  addSideWindow(1, -d * 0.18, floorH * 0.56);
+  if (floors >= 2) {
+    addFrontWindow(-w * 0.22, floorH + floorH * 0.58);
+    addFrontWindow(w * 0.24, floorH + floorH * 0.58);
+    addSideWindow(-1, d * 0.12, floorH + floorH * 0.56);
   }
 
-  // 老虎窗：多层住宅屋顶上的小凸窗，剪影立刻不一样
-  if (level >= 2 && rng() > 0.35) {
-    const dormer = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, 0.24), mat(p.body));
-    dormer.position.set(w * 0.18, topY + rh * 0.45, d / 2 - 0.08);
-    dormer.castShadow = true;
-    g.add(dormer);
-    const dWin = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.04), winMat);
-    dWin.position.set(w * 0.18, topY + rh * 0.45, d / 2 + 0.05);
-    dWin.userData.noBake = true;
-    g.add(dWin);
+  // 门：木门 + 石门楣 + 小雨棚 + 门灯 + 台阶
+  const door = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.52, 0.06), timber);
+  door.position.set(doorX, 0.31, d / 2 + 0.045);
+  g.add(door);
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.06, 0.09), stone);
+  lintel.position.set(doorX, 0.6, d / 2 + 0.05);
+  g.add(lintel);
+  const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.045, 0.22), mat(p.roof));
+  canopy.position.set(doorX, 0.78, d / 2 + 0.15);
+  canopy.rotation.x = -0.16;
+  canopy.castShadow = true;
+  g.add(canopy);
+  for (const side of [-1, 1]) {
+    const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.22, 0.03), timber);
+    bracket.position.set(doorX + side * 0.22, 0.56, d / 2 + 0.1);
+    bracket.rotation.z = side * 0.55;
+    g.add(bracket);
   }
+  const step = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.07, 0.18), stone);
+  step.position.set(doorX, 0.035, d / 2 + 0.13);
+  g.add(step);
+  const lantern = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.14, 0.09), lampMat);
+  lantern.position.set(doorX + 0.28, 0.48, d / 2 + 0.07);
+  lantern.userData.noBake = true;
+  g.add(lantern);
 
-  // 屋顶尖饰：四坡/双坡都有明确脊点，加一颗小珠收头
-  {
-    const finial = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(0.055, 0),
-      mat(new THREE.Color(p.roof).lerp(new THREE.Color(0xffffff), 0.25).getHex()),
-    );
-    finial.position.y = topY + rh + 0.02;
-    g.add(finial);
-  }
-
-  // 烟囱在顶层
-  if (rng() > 0.35) {
-    const ch = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.42, 0.16), mat(getPalette().rockDark));
-    ch.position.set(w * 0.26, topY + rh * 0.55, -d * 0.2);
-    g.add(ch);
-    // 烟囱帽：顶端一小圈檐，细节到位，也挡住"方管子"的断面
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.04, 0.22), mat(getPalette().rock));
-    cap.position.set(w * 0.26, topY + rh * 0.55 + 0.22, -d * 0.2);
-    g.add(cap);
-  }
-
-  // 木构架：几根深色梁，把“白墙盒子”读成有建造逻辑的农舍
-  const timber = mat(0x7a5738);
-  const frontZ = d / 2 + 0.035;
-  for (const tx of [-w * 0.32, 0, w * 0.32]) {
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(0.045, floors * floorH * 0.86, 0.035), timber);
-    beam.position.set(tx, floors * floorH * 0.43, frontZ);
+  // 木构架：角柱 / 中柱 / 腰梁 / 侧墙斜撑
+  for (const tx of [-w / 2 + 0.035, w / 2 - 0.035]) {
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(0.045, topY * 0.94, 0.04), timber);
+    beam.position.set(tx, topY * 0.47, d / 2 + 0.055);
     g.add(beam);
   }
-  if (floors >= 2) {
-    const belt = new THREE.Mesh(new THREE.BoxGeometry(w * 0.92, 0.04, 0.035), timber);
-    belt.position.set(0, floorH, frontZ);
-    g.add(belt);
+  for (const y of [0.18, topY * 0.96]) {
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(w * 0.98, 0.045, 0.04), timber);
+    beam.position.set(0, y, d / 2 + 0.055);
+    g.add(beam);
+  }
+  for (const side of [-1, 1]) {
+    for (const z of [-d * 0.28, d * 0.28]) {
+      const brace = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.48, 0.04), timber);
+      brace.position.set(side * (w / 2 + 0.055), floorH * 0.68, z);
+      brace.rotation.x = side * 0.58;
+      g.add(brace);
+    }
   }
 
-  // Lv3 的“横向生长”：贴一间单层侧翼，而不是再叠一层楼。
-  // 屋顶继续用同款坡顶，所以体量变大，但语言不变。
+  // 屋顶：加大的出檐 + 屋脊压条 + 檐口封板 + 椽头
+  const roofW = w + 0.42;
+  const roofD = d + 0.36;
+  const roof = buildRoof('gable', roofW, roofH, roofD, p.roof, p.body);
+  roof.position.y = topY;
+  g.add(roof);
+  const ridge = new THREE.Mesh(new THREE.BoxGeometry(roofW + 0.02, 0.075, 0.14), mat(new THREE.Color(p.roof).offsetHSL(0, 0, -0.06).getHex()));
+  ridge.position.y = topY + roofH - 0.02;
+  g.add(ridge);
+  for (const side of [-1, 1]) {
+    const fascia = new THREE.Mesh(new THREE.BoxGeometry(roofW, 0.06, 0.055), trim);
+    fascia.position.set(0, topY + 0.015, side * (roofD / 2 - 0.02));
+    g.add(fascia);
+    for (let i = -1; i <= 1; i++) {
+      const tail = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.32), timberLight);
+      tail.position.set(i * roofW * 0.3, topY + 0.02, side * (roofD / 2 + 0.1));
+      g.add(tail);
+    }
+  }
+
+  // Lv2：屋顶天窗。比“贴一块盒子”更像真实的老虎窗/阁楼窗，
+  // 也不会在坡屋顶上留下一个悬空的白色方块。
+  if (level >= 2) {
+    const skZ = d * 0.27;
+    const roofFrac = 1 - skZ / (roofD / 2);
+    const skY = topY + roofH * Math.max(0.2, roofFrac);
+    const angle = Math.atan2(roofH, roofD / 2);
+    // 四条边框 + 一块略高的玻璃，保证俯视时看到的是窗面而不是白边
+    const sk = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.035, 0.34), winMat);
+    sk.position.set(w * 0.18, skY + 0.055, skZ);
+    sk.rotation.x = -angle;
+    sk.userData.noBake = true;
+    g.add(sk);
+    for (const [bw, bd, bx, bz] of [
+      [0.36, 0.035, 0, -0.19], [0.36, 0.035, 0, 0.19],
+      [0.035, 0.42, -0.18, 0], [0.035, 0.42, 0.18, 0],
+    ] as const) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, 0.045, bd), trim);
+      bar.position.set(w * 0.18 + bx, skY + 0.05, skZ + bz);
+      bar.rotation.x = -angle;
+      g.add(bar);
+    }
+  }
+
+  // 烟囱：毛石烟囱 + 两个陶土烟帽，偏在一侧
+  const chX = w * 0.36;
+  const chZ = -d * 0.06;
+  const chH = roofH * 0.9 + 0.35;
+  const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.2, chH, 0.2), stoneDark);
+  chimney.position.set(chX, topY + chH / 2 + 0.06, chZ);
+  chimney.castShadow = true;
+  g.add(chimney);
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.06, 0.28), stone);
+  cap.position.set(chX, topY + chH + 0.06, chZ);
+  g.add(cap);
+  for (const off of [-0.055, 0.055]) {
+    const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, 0.12, 6), mat(0xb05a42));
+    pot.position.set(chX + off, topY + chH + 0.15, chZ);
+    g.add(pot);
+  }
+
+  // 门廊：只在门前做一小段“灰空间”，不再用一片大屋顶把整面墙盖住
+  if (style === 'porch') {
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(w * 1.0, 0.08, 0.5), timberLight);
+    deck.position.set(0, 0.04, d / 2 + 0.28);
+    deck.castShadow = true;
+    g.add(deck);
+    for (const side of [-1, 1]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.07, floorH * 0.92, 0.07), timber);
+      post.position.set(side * w * 0.5, floorH * 0.46, d / 2 + 0.45);
+      post.castShadow = true;
+      g.add(post);
+      const brace = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.3, 0.04), timber);
+      brace.position.set(side * w * 0.46, floorH * 0.82, d / 2 + 0.32);
+      brace.rotation.z = side * 0.7;
+      g.add(brace);
+    }
+    // 门廊用开放木架收头，不再压一片大屋顶，正面的窗与木构架保持可见
+    const porchBeam = new THREE.Mesh(new THREE.BoxGeometry(w * 1.0, 0.07, 0.07), timber);
+    porchBeam.position.set(0, floorH * 0.95, d / 2 + 0.45);
+    porchBeam.castShadow = true;
+    g.add(porchBeam);
+    const hanging = new THREE.Mesh(new THREE.IcosahedronGeometry(0.09, 0), mat(0x7d9165));
+    hanging.position.set(w * 0.18, floorH * 0.82, d / 2 + 0.45);
+    g.add(hanging);
+  }
+
+  // Lv3：单层侧翼，和主屋共用坡顶语言
   if (level >= 3) {
     const aw = w * 0.46;
-    const ad = d * 0.68;
-    const ah = floorH * 0.92;
+    const ad = d * 0.66;
+    const ah = floorH * 0.9;
     const ax = w / 2 + aw / 2 - 0.04;
     const wing = new THREE.Mesh(new THREE.BoxGeometry(aw, ah, ad), mat(p.body));
     wing.position.set(ax, ah / 2, -d * 0.08);
     wing.castShadow = true;
     wing.receiveShadow = true;
     g.add(wing);
-    const wingRoof = new THREE.Mesh(
-      new THREE.ConeGeometry(aw * 0.8, ah * 0.62, 4),
-      mat(p.roof),
-    );
-    wingRoof.rotation.y = Math.PI / 4;
-    wingRoof.scale.z = ad / aw;
-    wingRoof.position.set(ax, ah + ah * 0.28, -d * 0.08);
+    const wingBase = new THREE.Mesh(new THREE.BoxGeometry(aw + 0.1, 0.14, ad + 0.1), stone);
+    wingBase.position.set(ax, 0.07, -d * 0.08);
+    g.add(wingBase);
+    // 单坡顶：从主屋山墙向外低下去
+    const wingRoof = new THREE.Mesh(new THREE.BoxGeometry(aw + 0.24, 0.07, ad + 0.18), mat(p.roof));
+    wingRoof.position.set(ax + 0.06, ah + 0.13, -d * 0.08);
+    wingRoof.rotation.z = -0.22;
     wingRoof.castShadow = true;
     g.add(wingRoof);
     const wingWin = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.2, 0.05), winMat);
-    wingWin.position.set(ax, ah * 0.58, -d * 0.08 + ad / 2 + 0.02);
+    wingWin.position.set(ax, ah * 0.58, -d * 0.08 + ad / 2 + 0.03);
     wingWin.userData.noBake = true;
     g.add(wingWin);
   }
 
-  // 墙体/屋顶/窗台等静止件合并成 1 个网格，窗户保持独立
+  // 攀藤：几片贴墙的深绿，给白墙一点“长出来”的生气
+  if (rng() > 0.45) {
+    const vineMat = mat(getPalette().leafDeep);
+    for (let i = 0; i < 5; i++) {
+      const leaf = new THREE.Mesh(new THREE.IcosahedronGeometry(range(rng, 0.04, 0.075), 0), vineMat);
+      leaf.scale.set(1.4, 0.7, 0.45);
+      leaf.position.set(w / 2 + 0.04, range(rng, 0.4, topY - 0.1), range(rng, -d * 0.35, d * 0.35));
+      g.add(leaf);
+    }
+  }
+
   bakeStatic(g);
   g.userData.lights = lights;
   return { group: g, lights };

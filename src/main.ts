@@ -1368,7 +1368,13 @@ setInterval(() => {
 }
 
 function isNight(): boolean {
-  const h = new Date().getHours();
+  // 必须和 ?hour= 预览共用同一个“视觉小时”：
+  // 否则白天预览时，帧循环仍会用真实凌晨时间把窗户点亮。
+  const raw = new URLSearchParams(location.search).get('hour');
+  const forced = raw === null ? NaN : Number(raw);
+  const h = Number.isFinite(forced) && forced >= 0 && forced <= 24
+    ? forced
+    : new Date().getHours();
   return h >= 19 || h < 6;
 }
 
