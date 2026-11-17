@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { getPalette, getScheme } from './palette';
 import { createBackdrop, type Backdrop } from './backdrop';
 import { Weather, type WeatherKind } from './weather';
+import { createFrameOverlay, type FrameOverlay } from './frame';
 
 /**
  * 从天空基色派生渐变用的上/下两色：
@@ -157,6 +158,8 @@ export class SceneView {
   /** 远景背板（远山 + 云海），不随换岛重建 */
   private backdrop!: Backdrop;
   private weather = new Weather();
+  /** 前景枝叶遮幅：一层贴在镜头前的虚化剪影，制造景深 */
+  private frameOverlay: FrameOverlay | null = null;
   /** 当前天气会影响光照：雨天压暗、整体偏冷 */
   private weatherKind: WeatherKind = 'clear';
   private skyMat!: THREE.ShaderMaterial;
@@ -230,6 +233,11 @@ export class SceneView {
     this.backdrop = createBackdrop();
     this.scene.add(this.backdrop.group);
     this.scene.add(this.weather.group);
+
+    // 前景遮幅挂在相机下，跟着镜头走；相机本身也要进场景图才会渲染子节点
+    this.frameOverlay = createFrameOverlay();
+    this.camera.add(this.frameOverlay.mesh);
+    this.scene.add(this.camera);
     this.setupPost();
 
     this.setSky(false);
@@ -433,6 +441,14 @@ export class SceneView {
       const bottom = u.uBottom.value;
       if (this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(bottom);
       this.scene.background = (bottom as THREE.Color).clone();
+    }
+    // 前景枝叶：白天暗绿、夜里更深、黄昏偏暖。
+    // 不染色的话它是一团白，看起来像云而不是叶子。
+    if (this.frameOverlay) {
+      const leaf = new THREE.Color(0x3c6b3a);
+      if (this.isNight) leaf.setHex(0x16222e);
+      else if (k > 0.25) leaf.lerp(new THREE.Color(0x5a6a2e), 0.55);
+      this.frameOverlay.setColor(leaf);
     }
     const light = getScheme().light;
     if (this.isNight) {
@@ -915,6 +931,7 @@ export class SceneView {
     this.camera.left = (-this.frustum * aspect) / 2;
     this.camera.right = (this.frustum * aspect) / 2;
     this.camera.top = this.frustum / 2;
+    this.frameOverlay?.setSize(this.camera.right - this.camera.left, this.camera.top - this.camera.bottom);
     this.camera.bottom = -this.frustum / 2;
     this.camera.updateProjectionMatrix();
   }
