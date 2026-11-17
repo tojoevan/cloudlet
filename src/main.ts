@@ -1270,6 +1270,8 @@ function syncTimeOfDay(): void {
     : d.getHours() + d.getMinutes() / 60;
   view.applyHour(hour);
   const n = hour >= 19 || hour < 6;
+  // 让 UI 也能感知昼夜：夜间左下角品牌字需要换浅色
+  document.body.classList.toggle('is-night', n);
   if (n !== nightNow) {
     nightNow = n;
     world.applyTimeOfDay(n);
