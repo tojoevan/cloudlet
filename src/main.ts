@@ -1487,7 +1487,21 @@ function applyPerfVisibility(): void {
   perfEl.style.display = state.settings.perfMonitor ? '' : 'none';
 }
 
+// QA 截图/排查默认限到 30fps：headless 没有垂直同步，Three.js 连续动画会顶满 CPU。
+// 需要更高帧率或关闭限帧时用 ?fps=60 / ?fps=0；只在 debug 参数下默认开启。
+const QA_PARAMS = new URLSearchParams(location.search);
+const QA_DEBUG = QA_PARAMS.get('debug') === '1';
+const QA_FPS_RAW = QA_PARAMS.get('fps');
+const QA_FPS = QA_FPS_RAW === null ? (QA_DEBUG ? 30 : 0) : Number(QA_FPS_RAW);
+const QA_FRAME_MS = Number.isFinite(QA_FPS) && QA_FPS > 0 ? 1000 / Math.min(120, QA_FPS) : 0;
+let qaLastFrameAt = 0;
+
 function frame(t: number): void {
+  if (QA_FRAME_MS > 0 && t - qaLastFrameAt < QA_FRAME_MS) {
+    requestAnimationFrame(frame);
+    return;
+  }
+  qaLastFrameAt = t;
   const rawInterval = Math.min(1000, t - last); // 真实帧间隔(ms)，不 clamp，供性能监控
   // dt 必须有下限：rAF 的时间戳偶尔会小于上一帧记录值（首帧、标签页恢复），
   // 负 dt 会让所有基于 dt 的动画倒放——落成弹跳的 ease 曲线在负值域会算出巨大的缩放。
